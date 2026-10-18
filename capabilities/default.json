@@ -2,11 +2,11 @@
   "identifier": "default",
   "windows": ["main"],
   "commands": [
-    "fs:readText",
-    "fs:writeText",
-    "fs:exists",
-    "fs:list",
-    "fs:remove",
+    "note:list",
+    "note:open",
+    "note:save",
+    "note:create",
+    "note:delete",
     "store:get",
     "store:set",
     "store:del",
@@ -20,12 +20,8 @@
     "notes:env",
     "system:version"
   ],
-  "permissions": ["fs:default", "store:default", "http:default", "log:default", "clipboard:default"],
+  "permissions": ["store:default", "http:default", "log:default", "clipboard:default"],
   "scopes": {
-    "fs": {
-      "allow": ["$CWD/notes", "$CWD/notes/**", "$HOME", "$HOME/**"],
-      "deny": ["**/*.secret.md", "**/.ssh/**", "**/.git/**", "**/id_rsa*", "**/*.pem"]
-    },
     "http": {
       "allow": [
         "api.deepseek.com",

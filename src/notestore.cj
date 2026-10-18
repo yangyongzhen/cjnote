@@ -1,0 +1,450 @@
+// NoteStore：cjnote 自研笔记存取（M2）
+//
+// 取代 fs 插件的三个原因：
+//  1. 安全面收口——页面永远不传路径，只传文件名；路径全部由本类内部拼
+//     （notes/ + 净化后的名字），路径穿越在入口处就被挡掉，fs scope 降为兜底；
+//  2. front-matter 是一等公民——list 直接给 title（列表显示标题而不是文件名），
+//     open 把正文与元数据拆开给，save 回写时保留原有 front-matter；
+//  3. 命令面是业务语义（note:open 而不是 fs:readText）——前端代码可读，将来
+//     加锁定/历史/同步都在这一层长，不动 fs 插件。
+
+package cjnote
+
+import cjTauri.*
+import std.collection.*
+import std.fs.*
+import std.time.*
+import stdx.encoding.json.*
+
+/** 仓颉 trimAscii 是 cjh 自有（std 没有）：自写一个（AGENTS §4 知识库结论） */
+func trimMd(s: String): String {
+    let b = s.toArray()
+    var start: Int64 = 0
+    var end = b.size
+    while (start < end && (b[start] == UInt8(32) || b[start] == UInt8(9) || b[start] == UInt8(13) || b[start] == UInt8(10))) {
+        start++
+    }
+    while (end > start && (b[end - 1] == UInt8(32) || b[end - 1] == UInt8(9) || b[end - 1] == UInt8(13) || b[end - 1] == UInt8(10))) {
+        end--
+    }
+    if (start >= end) {
+        return ""
+    }
+    return String.fromUtf8(b[start..end])
+}
+
+public class NoteStore {
+    private let dir: String
+
+    public init(dir: String) {
+        this.dir = dir
+    }
+
+    // ── 文件名净化：唯一入口，所有路径经这里 ──
+
+    /** 净化文件名：只留白名单字符（中文/字母/数字/空格/._-），掐掉路径分隔与穿越，
+        强制 .md 后缀。返回 None = 名字非法。 */
+    func sanitizeName(raw: String): Option<String> {
+        let name = trimMd(raw)
+        if (name.size == 0 || name.size > 120) {
+            return Option<String>.None
+        }
+        let b = name.toArray()
+        var out = ArrayList<Byte>()
+        var i: Int64 = 0
+        while (i < b.size) {
+            let c = b[i]
+            // 白名单：数字 / 大写 / 小写 / 空格 / . _ -；UTF-8 多字节（>= 0x80，中文名）原样过
+            if ((c >= UInt8(48) && c <= UInt8(57)) || (c >= UInt8(65) && c <= UInt8(90)) ||
+                (c >= UInt8(97) && c <= UInt8(122)) || c == UInt8(32) || c == UInt8(46) ||
+                c == UInt8(95) || c == UInt8(45) || c >= UInt8(128)) {
+                out.add(c)
+            } else {
+                return Option<String>.None  // / \ : 等——直接拒，不做替换（替换会误导用户）
+            }
+            i++
+        }
+        var clean = String.fromUtf8(out.toArray())
+        // 掐路径片段与穿越：任何形式的路径分隔都不该到了这一步还活着（上面已拒 / \），
+        // 这里再兜两道：不落在 .md 后缀、整名是点（"." / ".."）
+        if (clean == "." || clean == ".." || !clean.endsWith(".md")) {
+            return Option<String>.None
+        }
+        // ".md" ".hidden.md" 这类以点开头的隐藏文件也不给
+        if (clean.startsWith(".")) {
+            return Option<String>.None
+        }
+        return Option<String>.Some(clean)
+    }
+
+    func notePath(name: String): String {
+        return this.dir + "/" + name
+    }
+
+    // ── front-matter 解析（轻量：只认 title/tags/desc 三键 + --- 围栏） ──
+
+    /** 拆 front-matter：返回 (metaJson, body)。无围栏时 meta 为空对象、body 原文。 */
+    func splitFrontMatter(text: String): (JsonObject, String) {
+        let meta = JsonObject()
+        let b = text.toArray()
+        // 第一行必须是 ---（允许 BOM 后跟 ---）
+        var p: Int64 = 0
+        if (b.size >= 3 && b[0] == UInt8(0xEF) && b[1] == UInt8(0xBB) && b[2] == UInt8(0xBF)) {
+            p = 3
+        }
+        var lineEnd = p
+        while (lineEnd < b.size && b[lineEnd] != UInt8(10)) {
+            lineEnd++
+        }
+        let firstLine = trimMd(String.fromUtf8(b[p..lineEnd]))
+        if (firstLine != "---") {
+            return (meta, text)
+        }
+        // 找收尾 ---（逐行扫）
+        var q = lineEnd + 1
+        var closeLine = -1
+        while (q < b.size) {
+            var e2 = q
+            while (e2 < b.size && b[e2] != UInt8(10)) {
+                e2++
+            }
+            let line = trimMd(String.fromUtf8(b[q..e2]))
+            if (line == "---") {
+                closeLine = q
+                break
+            }
+            q = e2 + 1
+        }
+        if (closeLine < 0) {
+            return (meta, text)  // 只有开头围栏没有收尾：当无 front-matter（正文原样）
+        }
+        // 逐键解析围栏内
+        var r = lineEnd + 1
+        while (r < closeLine) {
+            var e2 = r
+            while (e2 < b.size && b[e2] != UInt8(10)) {
+                e2++
+            }
+            let line = String.fromUtf8(b[r..e2])
+            let idxOpt = line.indexOf(":")
+            if (let Some(idx) <- idxOpt) {
+                let key = trimMd(line[0..idx])
+                let value = trimMd(line[idx + 1..line.size])
+                if (key == "title") {
+                    meta.put("title", JsonString(value))
+                } else if (key == "tags") {
+                    meta.put("tags", JsonString(value))
+                } else if (key == "desc") {
+                    meta.put("desc", JsonString(value))
+                }
+            }
+            r = e2 + 1
+        }
+        // body = 收尾 --- 之后的全部（去一个紧跟的换行）
+        var bodyStart = closeLine
+        while (bodyStart < b.size && b[bodyStart] != UInt8(10)) {
+            bodyStart++
+        }
+        bodyStart++  // 吃掉收尾行自己的换行
+        if (bodyStart < b.size && b[bodyStart] == UInt8(10)) {
+            bodyStart++  // 围栏后空行吃一个
+        }
+        return (meta, String.fromUtf8(b[bodyStart..b.size]))
+    }
+
+    /** 序列化回 front-matter（meta 有 title 才写围栏；tags/desc 空则跳过） */
+    func joinFrontMatter(meta: JsonObject, body: String): String {
+        var hasAny = false
+        var sb = StringBuilder("---\n")
+        if (let Some(v) <- meta.get("title")) {
+            match (v.kind()) {
+                case JsonKind.JsString =>
+                    let s = v.asString().getValue()
+                    if (s.size > 0) {
+                        sb.append("title: " + s + "\n")
+                        hasAny = true
+                    }
+                case _ => ()
+            }
+        }
+        if (let Some(v) <- meta.get("tags")) {
+            match (v.kind()) {
+                case JsonKind.JsString =>
+                    let s = v.asString().getValue()
+                    if (s.size > 0) {
+                        sb.append("tags: " + s + "\n")
+                        hasAny = true
+                    }
+                case _ => ()
+            }
+        }
+        if (let Some(v) <- meta.get("desc")) {
+            match (v.kind()) {
+                case JsonKind.JsString =>
+                    let s = v.asString().getValue()
+                    if (s.size > 0) {
+                        sb.append("desc: " + s + "\n")
+                        hasAny = true
+                    }
+                case _ => ()
+            }
+        }
+        sb.append("---\n\n")
+        if (!hasAny) {
+            return body  // 三个键全空：不写围栏，正文原样
+        }
+        sb.append(body)
+        return sb.toString()
+    }
+
+    /** 从正文首行抽 title 兜底（# 开头）：list/open 无 front-matter title 时用 */
+    func titleFromBody(body: String): String {
+        let lines = body.split("\n", -1)
+        for (line in lines) {
+            let t = trimMd(line)
+            if (t.size == 0) {
+                continue
+            }
+            if (t.startsWith("# ")) {
+                return trimMd(t[2..t.size])
+            }
+            return t  // 第一个非空行（不管 #）：截断当标题
+        }
+        return ""
+    }
+
+    // ── 命令实现 ──
+
+    /** note:list：扫目录 .md，标题 = front-matter title > 正文首行 # > 文件名 */
+    public func list(): JsonValue {
+        let out = JsonObject()
+        let arr = JsonArray()
+        try {
+            let entries = Directory.readFrom(this.dir)
+            // 排序后再输出（Directory.readFrom 顺序不保证）
+            var names = ArrayList<String>()
+            for (info in entries) {
+                if (!info.isDirectory()) {
+                    names.add(info.name)
+                }
+            }
+            // 简单插入排序（数量小）
+            var i: Int64 = 1
+            while (i < names.size) {
+                var j = i
+                let cur = names[i]
+                while (j > 0 && names[j - 1] > cur) {
+                    names[j] = names[j - 1]
+                    j--
+                }
+                names[j] = cur
+                i++
+            }
+            for (name in names) {
+                if (!name.endsWith(".md") || name.startsWith(".")) {
+                    continue
+                }
+                let item = JsonObject()
+                item.put("name", JsonString(name))
+                var title = ""
+                try {
+                    let text = String.fromUtf8(File.readFrom(this.notePath(name)))
+                    let (meta, body) = this.splitFrontMatter(text)
+                    if (let Some(t) <- meta.get("title")) {
+                        match (t.kind()) {
+                            case JsonKind.JsString =>
+                                let s = t.asString().getValue()
+                                if (s.size > 0) {
+                                    title = s
+                                }
+                            case _ => ()
+                        }
+                    }
+                    if (title.size == 0) {
+                        title = this.titleFromBody(body)
+                    }
+                } catch (e: Exception) {
+                    let _ = e  // 读不了的单个文件：标题留空，不拖垮整个列表
+                }
+                if (title.size == 0) {
+                    title = name
+                }
+                item.put("title", JsonString(title))
+                arr.add(item)
+            }
+        } catch (e: Exception) {
+            eprintln("[cjnote] note:list 读目录失败（${this.dir}）：${e}")
+        }
+        out.put("notes", arr)
+        return out
+    }
+
+    /** note:open：按名读，拆 front-matter 给 {name,title,body,tags,desc} */
+    public func open(rawName: String): JsonValue {
+        let name = match (this.sanitizeName(rawName)) {
+            case Some(n) => n
+            case None => throw CommandException("note: 文件名不合法（只允许中文/字母/数字/空格/._-，且以 .md 结尾）")
+        }
+        let text = String.fromUtf8(File.readFrom(this.notePath(name)))
+        let (meta, body) = this.splitFrontMatter(text)
+        let out = JsonObject()
+        out.put("name", JsonString(name))
+        var title = ""
+        if (let Some(t) <- meta.get("title")) {
+            match (t.kind()) {
+                case JsonKind.JsString =>
+                    let s = t.asString().getValue()
+                    if (s.size > 0) {
+                        title = s
+                    }
+                case _ => ()
+            }
+        }
+        if (title.size == 0) {
+            title = this.titleFromBody(body)
+        }
+        out.put("title", JsonString(title))
+        out.put("body", JsonString(body))
+        if (let Some(t) <- meta.get("tags")) {
+            out.put("tags", t)
+        }
+        if (let Some(t) <- meta.get("desc")) {
+            out.put("desc", t)
+        }
+        return out
+    }
+
+    /** note:save：净化名字 + 保留 front-matter 回写（meta 来自旧文件，title 可被参数覆盖） */
+    public func save(rawName: String, body: String, newTitle: Option<String>): JsonValue {
+        let name = match (this.sanitizeName(rawName)) {
+            case Some(n) => n
+            case None => throw CommandException("note: 文件名不合法")
+        }
+        let path = this.notePath(name)
+        // 旧文件的 front-matter 先读出来（保留 tags/desc）；title 按参数决定是否覆盖
+        var meta = JsonObject()
+        if (exists(path)) {
+            let old = String.fromUtf8(File.readFrom(path))
+            let (m, _) = this.splitFrontMatter(old)
+            meta = m
+        }
+        if (let Some(t) <- newTitle) {
+            if (t.size > 0) {
+                meta.put("title", JsonString(t))
+            }
+        }
+        let full = this.joinFrontMatter(meta, body)
+        File.writeTo(path, full.toArray())
+        let out = JsonObject()
+        out.put("ok", JsonBool(true))
+        out.put("name", JsonString(name))
+        return out
+    }
+
+    /** note:create：服务端起名（时间戳 + 查重），返回净化后的名字 */
+    public func create(title: String): JsonValue {
+        var base = ""
+        if (title.size > 0) {
+            // 标题当文件名基底：净化后去 .md 再用；非法就退时间戳
+            match (this.sanitizeName(title + ".md")) {
+                case Some(n) => base = n[0..n.size - 3]
+                case None => base = ""
+            }
+        }
+        if (base.size == 0) {
+            // ISO 形如 2026-10-18T…，取前 10 位当日期（绕开 monthValue 弃用警告）
+            let iso = DateTime.now().toString()
+            base = "笔记-" + iso[0..10]
+        }
+        var name = base + ".md"
+        var i: Int64 = 2
+        while (exists(this.notePath(name))) {
+            name = base + "-" + i.toString() + ".md"
+            i++
+        }
+        // 初始内容：标题行（title 参数有值就用它，否则用文件名去后缀）
+        var head = title
+        if (head.size == 0) {
+            head = base
+        }
+        let content = "# " + head + "\n\n"
+        File.writeTo(this.notePath(name), content.toArray())
+        let out = JsonObject()
+        out.put("name", JsonString(name))
+        return out
+    }
+
+    /** note:delete：删除前确认由前端做；这里只管净化 + 删 */
+    public func delete(rawName: String): JsonValue {
+        let name = match (this.sanitizeName(rawName)) {
+            case Some(n) => n
+            case None => throw CommandException("note: 文件名不合法")
+        }
+        let path = this.notePath(name)
+        if (!exists(path)) {
+            throw CommandException("note: 文件不存在：${name}")
+        }
+        remove(path)
+        let out = JsonObject()
+        out.put("ok", JsonBool(true))
+        return out
+    }
+}
+
+// ── CommandHandler 适配（5 个命令共用一个 handler 类，按 cmd 名分流） ──
+
+public class NoteCommands <: CommandHandler {
+    private let store: NoteStore
+
+    public init(store: NoteStore) {
+        this.store = store
+    }
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = ipc
+        if (cmd == "note:list") {
+            return this.store.list()
+        }
+        if (cmd == "note:open") {
+            return this.store.open(this.requireStr(args, "name"))
+        }
+        if (cmd == "note:save") {
+            var titleOpt = Option<String>.None
+            if (let Some(t) <- args.get("title")) {
+                match (t.kind()) {
+                    case JsonKind.JsString =>
+                        let s = t.asString().getValue()
+                        if (s.size > 0) {
+                            titleOpt = Option<String>.Some(s)
+                        }
+                    case _ => ()
+                }
+            }
+            return this.store.save(this.requireStr(args, "name"), this.requireStr(args, "body"), titleOpt)
+        }
+        if (cmd == "note:create") {
+            var title = ""
+            if (let Some(t) <- args.get("title")) {
+                match (t.kind()) {
+                    case JsonKind.JsString => title = t.asString().getValue()
+                    case _ => ()
+                }
+            }
+            return this.store.create(title)
+        }
+        if (cmd == "note:delete") {
+            return this.store.delete(this.requireStr(args, "name"))
+        }
+        throw CommandException("note: unknown command ${cmd}")
+    }
+
+    func requireStr(args: JsonObject, key: String): String {
+        if (let Some(v) <- args.get(key)) {
+            match (v.kind()) {
+                case JsonKind.JsString => return v.asString().getValue()
+                case _ => throw CommandException("note: 参数 ${key} 必须是字符串")
+            }
+        }
+        throw CommandException("note: 缺参数 \"${key}\"")
+    }
+}

@@ -8,7 +8,6 @@
 package cjnote
 
 import cjTauri.*
-import cjTauri.plugins.fs.*
 import cjTauri.plugins.store.*
 import cjTauri.plugins.http.*
 import cjTauri.plugins.log.*
@@ -92,15 +91,22 @@ main(): Int64 {
 
     eprintln("[cjnote] main start (selfcheck=${selfCheck})")
 
+    // 笔记存取（M2 自研，替代 fs 插件）：路径全部由 NoteStore 内部拼，页面只传文件名
+    let noteCmds = NoteCommands(NoteStore("notes"))
+
     let app = TauriApp()
         .window(WindowConfig("cjnote — AI 笔记", 1280, 800))
-        .plugin(FsPlugin())
         .plugin(StorePlugin())
         .plugin(HttpPlugin())
         .plugin(LogPlugin())
         .plugin(ClipboardPlugin())
         .register("report", ReportCommand())
         .register("notes:env", NotesEnvCommand(selfCheck))
+        .register("note:list", noteCmds)
+        .register("note:open", noteCmds)
+        .register("note:save", noteCmds)
+        .register("note:create", noteCmds)
+        .register("note:delete", noteCmds)
 
     // 工作区在装配期建好 + 播种欢迎笔记（幂等：目录/文件已存在不重建）。
     // 建目录是应用装配的事，不进 fs 插件命令面（markdown-notes 同款）。

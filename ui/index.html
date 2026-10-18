@@ -206,20 +206,14 @@ function report(line) {
 }
 function eprintlnShim(line) { console.log(line); }
 
-// ── 笔记列表 ──
+// ── 笔记列表（M2：走自研 NoteStore，note:list/open/save/create/delete） ──
 function refreshList() {
-  return invoke("fs:list", { path: "notes" }).then(function (r) {
-    // fs:list 返回形状以实机为准：数组或 {entries:[...]}，两条都收
-    var items = Array.isArray(r) ? r : (r && r.entries) ? r.entries : [];
+  return invoke("note:list", {}).then(function (r) {
+    var items = (r && r.notes) ? r.notes : [];
     notes = [];
     for (var i = 0; i < items.length; i++) {
-      var it = items[i];
-      var name = typeof it === "string" ? it : (it.name || it.fileName || "");
-      if (!name || name.charAt(0) === ".") { continue; }
-      if (!/\.md$/i.test(name)) { continue; }
-      notes.push(name);
+      if (items[i] && items[i].name) { notes.push(items[i].name); }
     }
-    notes.sort();
     renderList();
     return notes;
   }).catch(function (e) { report("SELFCHECK FAIL list: " + e); });
@@ -243,33 +237,34 @@ function renderList() {
   }
 }
 function openNote(name) {
-  return invoke("fs:readText", { path: "notes/" + name }).then(function (r) {
-    var text = (r && typeof r.text === "string") ? r.text : (typeof r === "string" ? r : "");
-    current = name; dirty = false;
-    $("doc-title").textContent = name;
+  return invoke("note:open", { name: name }).then(function (r) {
+    var text = (r && typeof r.body === "string") ? r.body : "";
+    current = (r && r.name) ? r.name : name;
+    dirty = false;
+    $("doc-title").textContent = current;
     setDoc(text);
     renderList();
-    report("SELFCHECK PASS open " + name + " bytes=" + text.length);
+    report("SELFCHECK PASS open " + current + " bytes=" + text.length);
   }).catch(function (e) { report("SELFCHECK FAIL read " + name + ": " + e); });
 }
 function saveCurrent() {
   if (!current) { newNote(); return; }
-  return invoke("fs:writeText", { path: "notes/" + current, contents: getDoc() }).then(function () {
+  return invoke("note:save", { name: current, body: getDoc() }).then(function (r) {
     dirty = false;
+    if (r && r.name) { current = r.name; }
     $("doc-title").textContent = current;
     report("SELFCHECK PASS save " + current);
   }).catch(function (e) { report("SELFCHECK FAIL save: " + e); });
 }
 function newNote() {
-  var base = "笔记-" + new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
-  var name = base + ".md";
-  var i = 2;
-  while (notes.indexOf(name) >= 0) { name = base + "-" + (i++) + ".md"; }
-  setDoc("# " + name.replace(/\.md$/, "") + "\n\n");
-  current = name;
-  $("doc-title").textContent = name + " *";
-  saveCurrent().then(refreshList);
-  renderList();
+  return invoke("note:create", {}).then(function (r) {
+    var name = (r && r.name) ? r.name : "";
+    if (!name) { report("SELFCHECK FAIL create: no name"); return; }
+    current = name;
+    $("doc-title").textContent = name;
+    setDoc("");
+    return saveCurrent().then(refreshList).then(function () { openNote(name); });
+  }).catch(function (e) { report("SELFCHECK FAIL create: " + e); });
 }
 
 // ── 自检（CJNOTE_SELFCHECK=1 时跑一轮，全部经 report 回投 stderr） ──
@@ -293,8 +288,8 @@ function selfCheck(env) {
         var prev = getDoc();
         setDoc(prev + "\n<!-- probe -->\n");
         saveCurrent().then(function () {
-          invoke("fs:readText", { path: "notes/" + target }).then(function (r) {
-            var text = (r && typeof r.text === "string") ? r.text : (typeof r === "string" ? r : "");
+          invoke("note:open", { name: target }).then(function (r) {
+            var text = (r && typeof r.body === "string") ? r.body : "";
             ok(text.indexOf("<!-- probe -->") >= 0, "write-read roundtrip");
             setDoc(prev); saveCurrent();
             report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
