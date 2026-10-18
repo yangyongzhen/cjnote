@@ -119,6 +119,28 @@ body {
   background: var(--accent); color: #fff; border: none; border-radius: 5px;
   padding: 5px 14px; cursor: pointer; font-size: 12px;
 }
+/* L2 选区动作：浮层工具条 + diff 确认条 */
+#sel-bar {
+  position: absolute; display: none; z-index: 50;
+  background: var(--bg3); border: 1px solid var(--accent); border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4); padding: 3px; gap: 2px;
+}
+#sel-bar button {
+  background: none; border: none; color: var(--fg); cursor: pointer;
+  font-size: 12px; padding: 4px 9px; border-radius: 4px;
+}
+#sel-bar button:hover { background: var(--accent); color: #fff; }
+#diff-bar {
+  display: none; flex: 0 0 auto; align-items: center; gap: 8px;
+  padding: 6px 12px; background: var(--bg3); border-top: 1px solid var(--accent);
+  font-size: 12px;
+}
+#diff-bar .diff-title { color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; }
+#diff-bar button {
+  border: none; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px;
+}
+#diff-bar .accept { background: var(--ok); color: #06281a; }
+#diff-bar .reject { background: var(--bg2); color: var(--fg-dim); border: 1px solid var(--border); }
 /* 顶栏右侧缩放补偿（AGENTS §4 zoom 坑：本页不缩放，占位说明） */
 </style>
 </head>
@@ -131,6 +153,11 @@ body {
   <button id="btn-new">新建</button>
 </div>
 <div id="main">
+  <div id="sel-bar">
+    <button data-act="rewrite">改写</button>
+    <button data-act="continue">续写</button>
+    <button data-act="translate">翻译</button>
+  </div>
   <div id="sidebar">
     <div class="head"><span>笔记</span><button id="btn-refresh" title="刷新列表">⟳</button></div>
     <div id="note-list"></div>
@@ -140,6 +167,11 @@ body {
       <div class="pane-tip">编辑（Markdown）</div>
       <div id="editor-wrap"></div>
       <textarea id="editor-fallback" spellcheck="false"></textarea>
+      <div id="diff-bar">
+        <span class="diff-title" id="diff-title"></span>
+        <button class="accept" id="diff-accept">接受</button>
+        <button class="reject" id="diff-reject">丢弃</button>
+      </div>
     </div>
     <div id="preview-pane">
       <div class="pane-tip">预览（实时）</div>
@@ -511,7 +543,38 @@ function selfCheck(env) {
                       if (aiHistory.length >= 4 && aiHistory[3].role === "assistant" && aiHistory[3].content.length > 0) {
                         var r2 = aiHistory[3].content;
                         ok(r2.indexOf("REF-OK") === 0, "note context in request body");
-                        report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                        // L2 断言：选区 → 改写 → diff → 接受后文档内容更新（mock 回显 REWRITE-OK 标记）
+                        if (cm) {
+                          ref.checked = false;
+                          var before = cm.getValue();
+                          var markFrom = before.indexOf("本地优先的 AI 笔记");
+                          if (markFrom >= 0) {
+                            cm.setSelection({ line: 2, ch: 0 }, { line: 2, ch: before.split("\n")[2].length });
+                            l2.selText = cm.getSelection();
+                            l2.from = cm.getCursor("from");
+                            l2.to = cm.getCursor("to");
+                            l2Run("rewrite");
+                            var t3 = 0;
+                            (function waitL2() {
+                              t3++;
+                              if (l2.pending && l2.pending.indexOf("REWRITE-OK") === 0) {
+                                l2Accept();
+                                ok(cm.getValue().indexOf("REWRITE-OK") >= 0, "l2 accept updates doc");
+                                report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                              } else if (t3 > 60) {
+                                ok(false, "l2 diff timeout");
+                                report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                              } else {
+                                setTimeout(waitL2, 100);
+                              }
+                            })();
+                          } else {
+                            ok(false, "l2 anchor line not found");
+                            report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                          }
+                        } else {
+                          report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                        }
                       } else if (t2 > 60) {
                         ok(false, "note context reply timeout");
                         report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
@@ -541,6 +604,175 @@ function selfCheck(env) {
   });
 }
 
+// ── L2 选区动作：选中文字浮出工具条 → AI 结果进 diff 确认条（接受插入/拒绝丢弃）──
+// 统一插入模式的第一落地：所有 AI 改文档的动作都走「生成 → diff 待确认 → 应用/丢弃」一条路。
+var l2 = { selText: "", from: null, to: null, streaming: false, acc: "", barEl: null, act: "" };
+
+function l2SelectionInEditor() {
+  if (cm) {
+    var s = cm.getSelection();
+    if (s && s.trim().length > 0) {
+      return { text: s, from: cm.getCursor("from"), to: cm.getCursor("to") };
+    }
+    return null;
+  }
+  var ta = $("editor-fallback");
+  var st = ta.selectionStart, en = ta.selectionEnd;
+  if (en > st && ta.value.slice(st, en).trim().length > 0) {
+    return { text: ta.value.slice(st, en), from: st, to: en };
+  }
+  return null;
+}
+function l2ShowBar(x, y) {
+  var bar = $("sel-bar");
+  bar.style.display = "flex";
+  // 贴着选区下方，避免出视口
+  var px = Math.min(x, window.innerWidth - 170);
+  var py = Math.min(y + 10, window.innerHeight - 50);
+  bar.style.left = px + "px";
+  bar.style.top = py + "px";
+}
+function l2HideBar() {
+  $("sel-bar").style.display = "none";
+}
+function l2OnSelChange() {
+  if (l2.streaming) { return; }
+  var sel = l2SelectionInEditor();
+  if (sel) {
+    l2.selText = sel.text;
+    l2.from = sel.from;
+    l2.to = sel.to;
+    // 坐标：CodeMirror 用 charCoords，textarea 用鼠标位置
+    if (cm) {
+      var pos = cm.charCoords(sel.to, "window");
+      l2ShowBar(pos.left, pos.bottom);
+    } else {
+      l2ShowBar(l2.mouseX || 200, l2.mouseY || 200);
+    }
+  } else {
+    l2HideBar();
+  }
+}
+function l2PromptFor(act, sel, doc) {
+  if (act === "rewrite") {
+    return "改写下面的文字，保持原意、更通顺简洁，直接给出改写结果，不要解释：\n\n" + sel;
+  }
+  if (act === "continue") {
+    return "接着下面的文字自然续写 1-2 句，直接给出续写内容，不要重复原文、不要解释：\n\n" + sel;
+  }
+  if (act === "translate") {
+    return "判断下面的文字是中文还是英文，翻译成另一种语言，直接给出译文，不要解释：\n\n" + sel;
+  }
+  return sel;
+}
+function l2Apply(text) {
+  if (cm && typeof l2.from.line === "number") {
+    cm.replaceRange(text, l2.from, l2.to);
+  } else {
+    var ta = $("editor-fallback");
+    ta.value = ta.value.slice(0, l2.from) + text + ta.value.slice(l2.to);
+    dirty = true;
+    renderPreview(ta.value);
+  }
+  dirty = true;
+}
+function l2Run(act) {
+  if (l2.streaming || !l2.selText) { return; }
+  if (!aiCfg.base || !aiCfg.model) {
+    aiShowSetup("先配置 AI 服务，才能使用选区动作");
+    return;
+  }
+  l2HideBar();
+  l2.streaming = true;
+  l2.act = act;
+  l2.acc = "";
+  var actName = { rewrite: "改写", continue: "续写", translate: "翻译" }[act] || act;
+  $("ai-state").textContent = actName + "中…";
+  var bar = $("diff-bar");
+  bar.style.display = "flex";
+  $("diff-title").textContent = "AI " + actName + "中…";
+  // 监听先于 invoke（M3 同款）
+  var off = bridge.listen("http:chunk", function (p) {
+    if (p.done) { return; }
+    l2.acc += p.delta || "";
+    $("diff-title").textContent = "AI " + actName + "：" + sseToText(l2.acc).slice(0, 80);
+  });
+  var payload = JSON.stringify({
+    model: aiCfg.model,
+    messages: [
+      { role: "system", content: "你是 cjnote 的写作助手。只输出要求的文字本身，不要任何解释或前后缀。" },
+      { role: "user", content: l2PromptFor(act, l2.selText, getDoc()) }
+    ],
+    stream: true
+  });
+  invoke("http:postStream", {
+    url: aiCfg.base,
+    body: payload,
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + aiCfg.key }
+  }).then(function (stat) {
+    off();
+    var full = sseToText(l2.acc);
+    l2.streaming = false;
+    if (full === "" || full.indexOf("**[错误]**") === 0) {
+      full = full === "" ? "**[错误]** 没有收到内容（HTTP " + (stat && stat.status || "?") + "），检查端点与白名单。" : full;
+      $("diff-title").textContent = full;
+      $("diff-accept").disabled = true;
+      $("diff-reject").textContent = "关闭";
+      $("ai-state").textContent = "出错";
+      return;
+    }
+    l2.pending = full;
+    $("diff-title").textContent = full.slice(0, 120);
+    $("diff-accept").disabled = false;
+    $("diff-reject").textContent = "丢弃";
+    $("ai-state").textContent = "待确认";
+    report("SELFCHECK PASS l2 diff shown len=" + full.length);
+  }).catch(function (e) {
+    off();
+    l2.streaming = false;
+    $("diff-title").textContent = "**[错误]** " + (e && e.message ? e.message : String(e));
+    $("diff-accept").disabled = true;
+    $("ai-state").textContent = "出错";
+  });
+}
+function l2Accept() {
+  if (l2.pending) {
+    l2Apply(l2.pending);
+    report("SELFCHECK PASS l2 accepted into doc");
+    l2Close();
+  }
+}
+function l2Close() {
+  l2.pending = null;
+  l2.streaming = false;
+  $("diff-bar").style.display = "none";
+  $("ai-state").textContent = aiCfg.base ? "就绪" : "未配置";
+}
+function initL2() {
+  var bar = $("sel-bar");
+  // CodeMirror 的 selectionChange 事件；textarea 用 mouseup 轮询
+  if (cm) {
+    cm.on("cursorActivity", l2OnSelChange);
+  } else {
+    document.addEventListener("mouseup", function (e) {
+      l2.mouseX = e.clientX; l2.mouseY = e.clientY;
+      setTimeout(l2OnSelChange, 10);
+    });
+  }
+  // 点击别处不收（工具条自身要可点）；Escape 收
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { l2HideBar(); if (l2.streaming) { l2Close(); } }
+  });
+  var btns = bar.querySelectorAll("button[data-act]");
+  for (var i = 0; i < btns.length; i++) {
+    (function (b) {
+      b.onclick = function () { l2Run(b.getAttribute("data-act")); };
+    })(btns[i]);
+  }
+  $("diff-accept").onclick = l2Accept;
+  $("diff-reject").onclick = l2Close;
+}
+
 // ── 启动 ──
 waitForBridge(function () {
   bridge = window.__CJ_TAURI__;
@@ -557,6 +789,8 @@ waitForBridge(function () {
     document.getElementById("ai-input").addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); aiSend(); }
     });
+    // L2 选区动作接线（编辑器初始化之后）
+    initL2();
     refreshList().then(function (list) {
       if (list.length > 0) { openNote(list[0]); }
     });
