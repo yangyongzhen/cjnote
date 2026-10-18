@@ -3,6 +3,7 @@
   "windows": ["main"],
   "commands": [
     "note:list",
+    "note:search",
     "note:open",
     "note:save",
     "note:create",

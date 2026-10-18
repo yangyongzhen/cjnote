@@ -215,6 +215,101 @@ public class NoteStore {
 
     // ── 命令实现 ──
 
+    /** note:search：全库关键词检索（标题+正文，大小写敏感的朴素 contains——
+        中文场景大小写折叠意义有限，先朴素实现，索引/分词留给 M5 的 sqlite FTS）。
+        返回前 8 条命中：{notes:[{name,title,snippet}]}，snippet 截命中处前后各 40 字。 */
+    public func search(query: String): JsonValue {
+        let out = JsonObject()
+        let arr = JsonArray()
+        let q = trimMd(query)
+        if (q.size == 0) {
+            out.put("notes", arr)
+            return out
+        }
+        try {
+            let entries = Directory.readFrom(this.dir)
+            var names = ArrayList<String>()
+            for (info in entries) {
+                if (!info.isDirectory() && info.name.endsWith(".md") && !info.name.startsWith(".")) {
+                    names.add(info.name)
+                }
+            }
+            // 插入排序（同 list()：本机 cjc 不支持 std.sort 限定名，sortBy 已弃用）
+            var si: Int64 = 1
+            while (si < names.size) {
+                var sj = si
+                let cur = names[si]
+                while (sj > 0 && names[sj - 1] > cur) {
+                    names[sj] = names[sj - 1]
+                    sj--
+                }
+                names[sj] = cur
+                si++
+            }
+            for (name in names) {
+                var text = ""
+                try {
+                    text = String.fromUtf8(File.readFrom(this.notePath(name)))
+                } catch (e: Exception) {
+                    let _ = e
+                    continue  // 读不了的单个文件跳过，不拖垮整个检索
+                }
+                let (meta, body) = this.splitFrontMatter(text)
+                var title = ""
+                if (let Some(t) <- meta.get("title")) {
+                    match (t.kind()) {
+                        case JsonKind.JsString =>
+                            let s = t.asString().getValue()
+                            if (s.size > 0) {
+                                title = s
+                            }
+                        case _ => ()
+                    }
+                }
+                if (title.size == 0) {
+                    title = this.titleFromBody(body)
+                }
+                if (title.size == 0) {
+                    title = name
+                }
+                // 标题或正文命中都算；正文里找第一处，截前后文各 40 字
+                var snippet = ""
+                let idxOpt = body.indexOf(q)
+                if (let Some(idx) <- idxOpt) {
+                    let bb = body.toArray()
+                    var st = idx - 40
+                    if (st < 0) {
+                        st = 0
+                    }
+                    var en = idx + q.size + 40
+                    if (en > bb.size) {
+                        en = bb.size
+                    }
+                    snippet = String.fromUtf8(bb[st..en])
+                } else if (title.contains(q)) {
+                    snippet = body  // 标题命中：正文开头当片段
+                    if (snippet.size > 80) {
+                        snippet = String.fromUtf8(snippet.toArray()[0..80])
+                    }
+                } else {
+                    continue  // 两处都不中：不进结果
+                }
+                let item = JsonObject()
+                item.put("name", JsonString(name))
+                item.put("title", JsonString(title))
+                item.put("snippet", JsonString(snippet))
+                arr.add(item)
+                if (arr.size() >= 8) {
+                    break
+                }
+            }
+        } catch (e: Exception) {
+            eprintln("[cjnote] note:search 读目录失败：${e}")
+        }
+        out.put("notes", arr)
+        return out
+    }
+
     /** note:list：扫目录 .md，标题 = front-matter title > 正文首行 # > 文件名 */
     public func list(): JsonValue {
         let out = JsonObject()
@@ -404,6 +499,9 @@ public class NoteCommands <: CommandHandler {
         let _ = ipc
         if (cmd == "note:list") {
             return this.store.list()
+        }
+        if (cmd == "note:search") {
+            return this.store.search(this.requireStr(args, "query"))
         }
         if (cmd == "note:open") {
             return this.store.open(this.requireStr(args, "name"))

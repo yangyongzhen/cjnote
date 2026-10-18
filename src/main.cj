@@ -110,6 +110,7 @@ main(): Int64 {
         .register("report", ReportCommand())
         .register("notes:env", NotesEnvCommand(selfCheck))
         .register("note:list", noteCmds)
+        .register("note:search", noteCmds)
         .register("note:open", noteCmds)
         .register("note:save", noteCmds)
         .register("note:create", noteCmds)

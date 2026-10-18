@@ -184,6 +184,9 @@ body {
       <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--fg-dim);margin-right:8px;">
         <input type="checkbox" id="ai-ref-note"> 引用当前笔记
       </label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--fg-dim);margin-right:8px;">
+        <input type="checkbox" id="ai-lib-note"> 问笔记库
+      </label>
       <span class="state" id="ai-state">未配置</span>
     </div>
     <div id="ai-msgs"></div>
@@ -311,8 +314,8 @@ function sseToText(acc) {
   }
   return out;
 }
-// 组 messages：system 基底 + 「引用当前笔记」勾选时注入当前文档全文（M4）
-function buildAiMessages() {
+// 组 messages：system 基底 + 「引用当前笔记」注入当前文档全文（M4）+ 「问笔记库」注入检索命中片段（L3）
+function buildAiMessages(extra) {
   var sys = "你是 cjnote 的写作助手，回答简洁、适合放进步骤笔记。";
   var ref = document.getElementById("ai-ref-note");
   if (ref && ref.checked && current) {
@@ -320,6 +323,10 @@ function buildAiMessages() {
     if (doc.length > 0) {
       sys += "\n\n用户当前正在编辑的笔记《" + current + "》全文如下，回答时结合它的内容：\n\n" + doc;
     }
+  }
+  if (extra && extra.length > 0) {
+    sys += "\n\n以下是用户笔记库里与提问相关的笔记片段（命中即截取，可能不完整）。" +
+      "回答时优先依据这些片段，并注明出自哪篇笔记：\n\n" + extra;
   }
   return [{ role: "system", content: sys }].concat(aiHistory);
 }
@@ -332,12 +339,32 @@ function aiSend() {
     aiShowSetup("先配置 AI 服务（Base URL / API Key / 模型名）");
     return;
   }
+  var lib = document.getElementById("ai-lib-note");
+  if (lib && lib.checked) {
+    // 问笔记库：先检索（页面只传关键词，路径由 NoteStore 内部拼），命中片段进 system
+    $("ai-state").textContent = "检索中…";
+    invoke("note:search", { query: text }).then(function (r) {
+      var notes = (r && r.notes) || [];
+      var ctx = "";
+      for (var i = 0; i < notes.length; i++) {
+        ctx += "《" + notes[i].title + "》（" + notes[i].name + "）\n" + notes[i].snippet + "\n\n";
+      }
+      aiStart(text, ctx, notes.length);
+    }).catch(function () {
+      aiStart(text, "", 0);
+    });
+    return;
+  }
+  aiStart(text, "", 0);
+}
+function aiStart(text, extra, hits) {
+  var input = $("ai-input");
   input.value = "";
   aiHistory.push({ role: "user", content: text });
   aiMsgEl("user", text);
   aiStreaming = true;
   $("ai-send").textContent = "…";
-  $("ai-state").textContent = "回复中";
+  $("ai-state").textContent = hits > 0 ? ("回复中（库内命中 " + hits + " 篇）") : "回复中";
   // 占位气泡（创建一次不再重绘）+ 累积流
   var body = aiMsgEl("assistant", "", true);
   var acc = "";
@@ -349,7 +376,7 @@ function aiSend() {
   });
   var payload = JSON.stringify({
     model: aiCfg.model,
-    messages: buildAiMessages(),
+    messages: buildAiMessages(extra),
     stream: true
   });
   invoke("http:postStream", {
@@ -560,7 +587,30 @@ function selfCheck(env) {
                               if (l2.pending && l2.pending.indexOf("REWRITE-OK") === 0) {
                                 l2Accept();
                                 ok(cm.getValue().indexOf("REWRITE-OK") >= 0, "l2 accept updates doc");
-                                report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                                // L3 断言：问笔记库模式 → note:search 命中片段进 system（mock 回显 SEARCH-OK）
+                                var lib = $("ai-lib-note");
+                                if (lib) {
+                                  lib.checked = true;
+                                  $("ai-input").value = "欢迎";
+                                  aiSend();
+                                  var t4 = 0;
+                                  (function waitLib() {
+                                    t4++;
+                                    var last = aiHistory[aiHistory.length - 1];
+                                    if (aiHistory.length >= 6 && last.role === "assistant" && last.content.length > 0) {
+                                      ok(last.content.indexOf("SEARCH-OK") === 0, "note library search in request body");
+                                      lib.checked = false;
+                                      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                                    } else if (t4 > 60) {
+                                      ok(false, "note library reply timeout");
+                                      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                                    } else {
+                                      setTimeout(waitLib, 100);
+                                    }
+                                  })();
+                                } else {
+                                  report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                                }
                               } else if (t3 > 60) {
                                 ok(false, "l2 diff timeout");
                                 report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
