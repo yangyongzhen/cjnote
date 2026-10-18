@@ -1,0 +1,31 @@
+[package]
+  cjc-version = "1.0.5"
+  name = "cjnote"
+  description = "cjnote — AI 原生 Markdown 笔记（cj-tauri 底座；M1 骨架：三栏 + 笔记列表）"
+  version = "0.1.0"
+  target-dir = ""
+  output-type = "executable"
+  compile-option = ""
+  override-compile-option = ""
+  link-option = ""
+  package-configuration = {}
+
+[dependencies]
+  # cj-tauri 框架本体：本工程独立于 cj-tauri 仓库之外（同级的 ../cj-tauri）
+  cjTauri = { path = "../cj-tauri" }
+
+[target.x86_64-unknown-linux-gnu]
+  # 末尾 -lcjTauri.plugins.fs 是必要的显式补齐：本应用同时 import cjTauri.plugins.fs 与 std.fs
+  # （两者短名都叫 fs），cjpm 生成的链接行会漏掉插件库，报 undefined reference to
+  # cjTauri.plugins.fs:FsPlugin.ti（ai-chat 实测坑，AGENTS 已记）
+  link-option = "-L../cj-tauri/native -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0 -lcjTauri.plugins.fs"
+
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+    path-option = ["${CANGJIE_STDX}"]
+
+[target.x86_64-w64-mingw32]
+  # GUI 子系统：双击不弹 DOS 黑窗口，stderr 仍走重定向（AGENTS §4）；末尾同款补齐 fs 插件库
+  link-option = "-L../cj-tauri/native -lcjtbridge --subsystem=windows -lcjTauri.plugins.fs"
+
+[target.x86_64-w64-mingw32.bin-dependencies]
+    path-option = ["${CANGJIE_STDX}"]

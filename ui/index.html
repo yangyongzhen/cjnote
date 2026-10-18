@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>cjnote — AI 笔记</title>
+<style>
+/*__VENDOR_CSS__*/
+</style>
+<style>
+:root {
+  --bg: #1e2229; --bg2: #262b34; --bg3: #2d3340;
+  --fg: #d8dee6; --fg-dim: #8b93a3; --accent: #4f9cf9;
+  --border: #363d4a; --ok: #58c288; --warn: #e0b25a;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg); color: var(--fg); font-size: 14px;
+  display: flex; flex-direction: column;
+}
+/* ── 顶栏 ── */
+#topbar {
+  flex: 0 0 auto; height: 44px; display: flex; align-items: center; gap: 10px;
+  padding: 0 14px; background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+#topbar .logo { font-weight: 600; color: var(--accent); }
+#topbar .doc-title { color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#topbar .spacer { flex: 1 1 auto; }
+#topbar button {
+  background: var(--bg3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 13px;
+}
+#topbar button:hover { border-color: var(--accent); }
+/* ── 三栏 ── */
+#main { flex: 1 1 auto; display: flex; min-height: 0; }
+#sidebar {
+  flex: 0 0 220px; display: flex; flex-direction: column;
+  background: var(--bg2); border-right: 1px solid var(--border); min-height: 0;
+}
+#sidebar .head {
+  flex: 0 0 auto; padding: 10px 12px 6px; color: var(--fg-dim);
+  font-size: 12px; letter-spacing: 1px; display: flex; align-items: center; justify-content: space-between;
+}
+#sidebar .head button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 16px; }
+#note-list { flex: 1 1 auto; overflow-y: auto; padding: 4px 6px; }
+.note-item {
+  padding: 7px 10px; border-radius: 6px; cursor: pointer; margin-bottom: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-dim);
+}
+.note-item:hover { background: var(--bg3); }
+.note-item.active { background: var(--bg3); color: var(--fg); border-left: 2px solid var(--accent); }
+/* 中栏：编辑 + 预览 */
+#work { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; }
+#editor-pane, #preview-pane { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column; }
+#preview-pane { border-left: 1px solid var(--border); }
+.pane-tip { flex: 0 0 auto; padding: 4px 12px; font-size: 11px; color: var(--fg-dim); background: var(--bg2); }
+#editor-wrap { flex: 1 1 auto; min-height: 0; }
+#editor-wrap .CodeMirror { height: 100%; }
+#editor-fallback {
+  width: 100%; height: 100%; border: none; resize: none; outline: none;
+  background: var(--bg); color: var(--fg); padding: 12px; font: 14px/1.6 monospace; display: none;
+}
+#preview { flex: 1 1 auto; overflow-y: auto; padding: 16px 22px; line-height: 1.7; }
+#preview h1, #preview h2, #preview h3 { margin: 14px 0 8px; color: #e8edf4; }
+#preview p { margin: 8px 0; }
+#preview pre { background: var(--bg3); padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 10px 0; }
+#preview code { font-family: Consolas, monospace; font-size: 13px; }
+#preview p code, #preview li code { background: var(--bg3); padding: 1px 5px; border-radius: 4px; }
+#preview ul, #preview ol { padding-left: 24px; margin: 8px 0; }
+#preview blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--fg-dim); margin: 8px 0; }
+#preview a { color: var(--accent); }
+#preview table { border-collapse: collapse; margin: 10px 0; }
+#preview th, #preview td { border: 1px solid var(--border); padding: 5px 10px; }
+#preview img { max-width: 100%; }
+/* ── AI 侧栏 ── */
+#ai {
+  flex: 0 0 320px; display: flex; flex-direction: column; min-height: 0;
+  background: var(--bg2); border-left: 1px solid var(--border);
+}
+#ai .head {
+  flex: 0 0 auto; padding: 10px 12px; font-size: 12px; letter-spacing: 1px;
+  color: var(--fg-dim); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+#ai .head .state { color: var(--warn); }
+#ai-msgs { flex: 1 1 auto; overflow-y: auto; padding: 12px; }
+.ai-empty { color: var(--fg-dim); font-size: 13px; line-height: 1.8; padding: 8px; }
+#ai-input-row {
+  flex: 0 0 auto; display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border);
+}
+#ai-input {
+  flex: 1 1 auto; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--fg); padding: 8px 10px; font-size: 13px; outline: none; resize: none; height: 40px;
+}
+#ai-input:focus { border-color: var(--accent); }
+#ai-send {
+  flex: 0 0 auto; background: var(--accent); color: #fff; border: none; border-radius: 6px;
+  padding: 0 14px; cursor: pointer; font-size: 13px;
+}
+#ai-send:disabled { opacity: 0.4; cursor: default; }
+/* 顶栏右侧缩放补偿（AGENTS §4 zoom 坑：本页不缩放，占位说明） */
+</style>
+</head>
+<body>
+<div id="topbar">
+  <span class="logo">cjnote</span>
+  <span class="doc-title" id="doc-title">（未打开）</span>
+  <span class="spacer"></span>
+  <button id="btn-save" title="Ctrl+S">保存</button>
+  <button id="btn-new">新建</button>
+</div>
+<div id="main">
+  <div id="sidebar">
+    <div class="head"><span>笔记</span><button id="btn-refresh" title="刷新列表">⟳</button></div>
+    <div id="note-list"></div>
+  </div>
+  <div id="work">
+    <div id="editor-pane">
+      <div class="pane-tip">编辑（Markdown）</div>
+      <div id="editor-wrap"></div>
+      <textarea id="editor-fallback" spellcheck="false"></textarea>
+    </div>
+    <div id="preview-pane">
+      <div class="pane-tip">预览（实时）</div>
+      <div id="preview"></div>
+    </div>
+  </div>
+  <div id="ai">
+    <div class="head"><span>AI 助手</span><span class="state" id="ai-state">M3 接通</span></div>
+    <div id="ai-msgs">
+      <div class="ai-empty">AI 侧栏（M1 占位）。<br>M3 将在此接入对话直连，M4 支持「引用当前笔记」。</div>
+    </div>
+    <div id="ai-input-row">
+      <textarea id="ai-input" placeholder="M3 接通后可对话…" disabled></textarea>
+      <button id="ai-send" disabled>发送</button>
+    </div>
+  </div>
+</div>
+<script>
+/*__VENDOR_JS__*/
+</script>
+<script>
+"use strict";
+// ── 桥等待（模板惯例）：内联页面初始化不抢在桥注入之前 ──
+function waitForBridge(cb, tries) {
+  if (window.__CJ_TAURI__ && typeof window.__CJ_TAURI__.invoke === "function") { cb(); return; }
+  if (tries <= 0) { document.getElementById("doc-title").textContent = "桥未就绪（重启应用）"; return; }
+  setTimeout(function () { waitForBridge(cb, tries - 1); }, 100);
+}
+
+var bridge = null;
+var cm = null;                      // CodeMirror 实例；null = fallback textarea
+var notes = [];                     // [{name, path}]
+var current = "";                   // 当前笔记文件名
+var dirty = false;
+
+function $(id) { return document.getElementById(id); }
+
+// ── 编辑器：CodeMirror 优先，缺失退化 textarea（vendor 内联失败不致命） ──
+function initEditor() {
+  var wrap = $("editor-wrap");
+  if (window.CodeMirror) {
+    cm = window.CodeMirror(wrap, {
+      value: "", lineNumbers: true, lineWrapping: true,
+      mode: "text/x-markdown", theme: "default",
+      extraKeys: { "Ctrl-S": function () { saveCurrent(); } }
+    });
+    cm.on("change", function () { dirty = true; renderPreview(cm.getValue()); });
+  } else {
+    var ta = $("editor-fallback");
+    ta.style.display = "block";
+    wrap.style.display = "none";
+    ta.addEventListener("input", function () { dirty = true; renderPreview(ta.value); });
+    document.addEventListener("keydown", function (e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); saveCurrent(); }
+    });
+  }
+}
+function getDoc() { return cm ? cm.getValue() : $("editor-fallback").value; }
+function setDoc(text) {
+  if (cm) { cm.setValue(text); } else { $("editor-fallback").value = text; }
+  renderPreview(text); dirty = false;
+}
+
+// ── 预览：marked 优先，缺失退化为纯文本 ──
+function renderPreview(md) {
+  var out = $("preview");
+  if (window.marked) {
+    try { out.innerHTML = window.marked.parse(md); }
+    catch (e) { out.textContent = md; }
+  } else { out.textContent = md; }
+  if (window.hljs) {
+    var blocks = out.querySelectorAll("pre code");
+    for (var i = 0; i < blocks.length; i++) { try { window.hljs.highlightElement(blocks[i]); } catch (err) {} }
+  }
+}
+
+// ── IPC 封装 ──
+function invoke(cmd, args) {
+  return bridge.invoke(cmd, args || {});
+}
+function report(line) {
+  eprintlnShim(line);
+  try { invoke("report", { line: line }); } catch (e) {}
+}
+function eprintlnShim(line) { console.log(line); }
+
+// ── 笔记列表 ──
+function refreshList() {
+  return invoke("fs:list", { path: "notes" }).then(function (r) {
+    // fs:list 返回形状以实机为准：数组或 {entries:[...]}，两条都收
+    var items = Array.isArray(r) ? r : (r && r.entries) ? r.entries : [];
+    notes = [];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var name = typeof it === "string" ? it : (it.name || it.fileName || "");
+      if (!name || name.charAt(0) === ".") { continue; }
+      if (!/\.md$/i.test(name)) { continue; }
+      notes.push(name);
+    }
+    notes.sort();
+    renderList();
+    return notes;
+  }).catch(function (e) { report("SELFCHECK FAIL list: " + e); });
+}
+function renderList() {
+  var box = $("note-list");
+  box.innerHTML = "";
+  if (notes.length === 0) {
+    var tip = document.createElement("div");
+    tip.className = "note-item"; tip.textContent = "（notes/ 目录为空）";
+    box.appendChild(tip); return;
+  }
+  for (var i = 0; i < notes.length; i++) {
+    (function (name) {
+      var el = document.createElement("div");
+      el.className = "note-item" + (name === current ? " active" : "");
+      el.textContent = name;
+      el.onclick = function () { openNote(name); };
+      box.appendChild(el);
+    })(notes[i]);
+  }
+}
+function openNote(name) {
+  return invoke("fs:readText", { path: "notes/" + name }).then(function (r) {
+    var text = (r && typeof r.text === "string") ? r.text : (typeof r === "string" ? r : "");
+    current = name; dirty = false;
+    $("doc-title").textContent = name;
+    setDoc(text);
+    renderList();
+    report("SELFCHECK PASS open " + name + " bytes=" + text.length);
+  }).catch(function (e) { report("SELFCHECK FAIL read " + name + ": " + e); });
+}
+function saveCurrent() {
+  if (!current) { newNote(); return; }
+  return invoke("fs:writeText", { path: "notes/" + current, contents: getDoc() }).then(function () {
+    dirty = false;
+    $("doc-title").textContent = current;
+    report("SELFCHECK PASS save " + current);
+  }).catch(function (e) { report("SELFCHECK FAIL save: " + e); });
+}
+function newNote() {
+  var base = "笔记-" + new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
+  var name = base + ".md";
+  var i = 2;
+  while (notes.indexOf(name) >= 0) { name = base + "-" + (i++) + ".md"; }
+  setDoc("# " + name.replace(/\.md$/, "") + "\n\n");
+  current = name;
+  $("doc-title").textContent = name + " *";
+  saveCurrent().then(refreshList);
+  renderList();
+}
+
+// ── 自检（CJNOTE_SELFCHECK=1 时跑一轮，全部经 report 回投 stderr） ──
+function selfCheck(env) {
+  if (!env || !env.selfcheck) { return; }
+  report("SELFCHECK start");
+  var pass = 0, fail = 0;
+  function ok(cond, name) {
+    if (cond) { pass++; report("SELFCHECK PASS " + name); }
+    else { fail++; report("SELFCHECK FAIL " + name); }
+  }
+  ok(!!bridge, "bridge ready");
+  ok(!!(cm || $("editor-fallback")), "editor ready");
+  ok(!!window.marked, "marked ready");
+  refreshList().then(function (list) {
+    ok(list.length >= 1, "note list non-empty");
+    // 开第一篇、写入、保存、重读——文件落盘闭环
+    var target = list[0];
+    if (target) {
+      openNote(target).then(function () {
+        var prev = getDoc();
+        setDoc(prev + "\n<!-- probe -->\n");
+        saveCurrent().then(function () {
+          invoke("fs:readText", { path: "notes/" + target }).then(function (r) {
+            var text = (r && typeof r.text === "string") ? r.text : (typeof r === "string" ? r : "");
+            ok(text.indexOf("<!-- probe -->") >= 0, "write-read roundtrip");
+            setDoc(prev); saveCurrent();
+            report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+          }).catch(function (e) { ok(false, "roundtrip read: " + e); report("SELFCHECK DONE passed=" + pass + " failed=" + fail); });
+        });
+      });
+    } else {
+      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+    }
+  });
+}
+
+// ── 启动 ──
+waitForBridge(function () {
+  bridge = window.__CJ_TAURI__;
+  invoke("notes:env", {}).then(function (env) {
+    initEditor();
+    document.getElementById("btn-save").onclick = function () { saveCurrent(); };
+    document.getElementById("btn-new").onclick = function () { newNote(); };
+    document.getElementById("btn-refresh").onclick = function () { refreshList(); };
+    document.addEventListener("keydown", function (e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s" && cm) { e.preventDefault(); saveCurrent(); }
+    });
+    refreshList().then(function (list) {
+      if (list.length > 0) { openNote(list[0]); }
+    });
+    selfCheck(env);
+  }).catch(function (e) {
+    document.getElementById("doc-title").textContent = "notes:env 失败：" + e;
+  });
+}, 50);
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+target/
+cjpm.lock
+notes/
+*.log

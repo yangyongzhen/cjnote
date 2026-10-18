@@ -1,0 +1,43 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": [
+    "fs:readText",
+    "fs:writeText",
+    "fs:exists",
+    "fs:list",
+    "fs:remove",
+    "store:get",
+    "store:set",
+    "store:del",
+    "store:keys",
+    "http:get",
+    "http:post",
+    "http:postStream",
+    "log:write",
+    "clipboard:write",
+    "report",
+    "notes:env",
+    "system:version"
+  ],
+  "permissions": ["fs:default", "store:default", "http:default", "log:default", "clipboard:default"],
+  "scopes": {
+    "fs": {
+      "allow": ["$CWD/notes", "$CWD/notes/**", "$HOME", "$HOME/**"],
+      "deny": ["**/*.secret.md", "**/.ssh/**", "**/.git/**", "**/id_rsa*", "**/*.pem"]
+    },
+    "http": {
+      "allow": [
+        "api.deepseek.com",
+        "api.openai.com",
+        "open.bigmodel.cn",
+        "dashscope.aliyuncs.com",
+        "api.moonshot.cn",
+        "*.openai.azure.com",
+        "127.0.0.1",
+        "localhost"
+      ]
+    }
+  },
+  "events": ["http:chunk", "menu:click"]
+}
