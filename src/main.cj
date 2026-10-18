@@ -52,6 +52,13 @@ public class NotesEnvCommand <: CommandHandler {
     }
 }
 
+func envOr(name: String, fallback: String): String {
+    match (getVariable(name)) {
+        case Some(v) => return v
+        case None => return fallback
+    }
+}
+
 /** 读一份文本文件，读不到返回空串（调用方打 stderr，不致命） */
 func readTextOr(path: String, hint: String): String {
     try {
@@ -125,6 +132,21 @@ main(): Int64 {
             eprintln("[cjnote] 已播种欢迎笔记 notes/欢迎.md")
         } catch (e: Exception) {
             eprintln("[cjnote] 播种欢迎笔记失败（不影响使用）：${e}")
+        }
+    }
+
+    // 探针模式（CJNOTE_PROBE_AI=1）：注入 mock 端点配置，前端自检追加一条 AI 流式探针
+    // （ai-chat 的 CJ_AICHAT_PROBE 同款：无人值守验证管道，真机配置仍走设置面板/store）
+    if (let Some(v) <- getVariable("CJNOTE_PROBE_AI")) {
+        if (v == "1") {
+            let base = envOr("CJNOTE_MOCK_URL", "http://127.0.0.1:18923/chat/completions")
+            let js = "window.__CJNOTE_AI_CFG__ = {base: '" + base + "', key: 'probe', model: 'mock'};\n"
+            match (app.hostOf("main")) {
+                case Some(host) =>
+                    host.addInitScript(js)
+                    eprintln("[cjnote] AI 探针配置已注入（${base}）")
+                case None => eprintln("[cjnote] AI 探针：主窗未登记，配置没注入")
+            }
         }
     }
 

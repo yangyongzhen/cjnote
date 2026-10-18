@@ -99,6 +99,26 @@ body {
   padding: 0 14px; cursor: pointer; font-size: 13px;
 }
 #ai-send:disabled { opacity: 0.4; cursor: default; }
+/* AI 消息气泡 */
+.msg { margin-bottom: 10px; padding: 7px 10px; border-radius: 8px; line-height: 1.6; word-break: break-word; white-space: pre-wrap; font-size: 13px; }
+.msg.user { background: var(--bg3); margin-left: 18px; }
+.msg.assistant { background: transparent; border: 1px solid var(--border); margin-right: 6px; }
+.msg .who { font-size: 11px; color: var(--fg-dim); margin-bottom: 3px; }
+.msg.err { border-color: var(--warn); }
+.ai-hint { font-size: 12px; color: var(--fg-dim); padding: 4px 8px; }
+/* 设置面板 */
+#ai-setup { padding: 12px; font-size: 12px; }
+#ai-setup label { display: block; color: var(--fg-dim); margin: 8px 0 3px; }
+#ai-setup input {
+  width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 5px;
+  color: var(--fg); padding: 6px 8px; font-size: 12px; outline: none;
+}
+#ai-setup input:focus { border-color: var(--accent); }
+#ai-setup .save-row { margin-top: 10px; text-align: right; }
+#ai-setup button {
+  background: var(--accent); color: #fff; border: none; border-radius: 5px;
+  padding: 5px 14px; cursor: pointer; font-size: 12px;
+}
 /* 顶栏右侧缩放补偿（AGENTS §4 zoom 坑：本页不缩放，占位说明） */
 </style>
 </head>
@@ -127,13 +147,11 @@ body {
     </div>
   </div>
   <div id="ai">
-    <div class="head"><span>AI 助手</span><span class="state" id="ai-state">M3 接通</span></div>
-    <div id="ai-msgs">
-      <div class="ai-empty">AI 侧栏（M1 占位）。<br>M3 将在此接入对话直连，M4 支持「引用当前笔记」。</div>
-    </div>
+    <div class="head"><span>AI 助手</span><span class="state" id="ai-state">未配置</span></div>
+    <div id="ai-msgs"></div>
     <div id="ai-input-row">
-      <textarea id="ai-input" placeholder="M3 接通后可对话…" disabled></textarea>
-      <button id="ai-send" disabled>发送</button>
+      <textarea id="ai-input" placeholder="问点什么…（Enter 发送）"></textarea>
+      <button id="ai-send">发送</button>
     </div>
   </div>
 </div>
@@ -205,6 +223,165 @@ function report(line) {
   try { invoke("report", { line: line }); } catch (e) {}
 }
 function eprintlnShim(line) { console.log(line); }
+
+// ── AI 侧栏（M3）：直连 chat/completions 流式对话 ──
+// 管道形状照 ai-chat 实测结论：http:chunk 只给字节增量（emitLatest 保最新），
+// 监听必须先于 invoke 挂；SSE 帧解析在前端全量重解（简单无状态，几十 KB 无感）。
+var aiCfg = { base: "", key: "", model: "" };
+var aiStreaming = false;
+var aiHistory = [];   // [{role, content}]（不含 system）
+
+function aiMsgEl(role, text, streaming) {
+  var box = $("ai-msgs");
+  var el = document.createElement("div");
+  el.className = "msg " + role + (role === "assistant" && text.indexOf("**[错误]**") === 0 ? " err" : "");
+  var who = document.createElement("div");
+  who.className = "who";
+  who.textContent = role === "user" ? "我" : "AI";
+  var bodyEl = document.createElement("div");
+  bodyEl.className = "body";
+  if (text) { bodyEl.textContent = text; }
+  el.appendChild(who);
+  el.appendChild(bodyEl);
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+function aiSetBody(el, text) {
+  var b = el.querySelector(".body");
+  if (b) { b.textContent = text; }
+  el.className = "msg assistant" + (text.indexOf("**[错误]**") === 0 ? " err" : "");
+  var box = $("ai-msgs");
+  box.scrollTop = box.scrollHeight;
+}
+// SSE 帧 → 纯文本（OpenAI 兼容）：data: 行取 JSON 拼 delta，[DONE] 收，半截 JSON 等下一轮
+function sseToText(acc) {
+  var out = "";
+  var lines = acc.split("\n");
+  for (var i = 0; i < lines.length; i++) {
+    var t = lines[i].trim();
+    if (t.indexOf("data:") !== 0) { continue; }
+    var d = t.slice(5).trim();
+    if (!d || d === "[DONE]") { continue; }
+    try {
+      var j = JSON.parse(d);
+      var ch = j.choices && j.choices[0];
+      var delta = ch && ch.delta && ch.delta.content;
+      if (typeof delta === "string") { out += delta; }
+      if (j.error && j.error.message) { out += "\n\n[服务端错误] " + j.error.message; }
+    } catch (e) { /* 块边界上的半截 JSON：下一轮全量重解自然补上 */ }
+  }
+  return out;
+}
+function aiSend() {
+  if (aiStreaming) { return; }
+  var input = $("ai-input");
+  var text = input.value.trim();
+  if (!text) { return; }
+  if (!aiCfg.base || !aiCfg.model) {
+    aiShowSetup("先配置 AI 服务（Base URL / API Key / 模型名）");
+    return;
+  }
+  input.value = "";
+  aiHistory.push({ role: "user", content: text });
+  aiMsgEl("user", text);
+  aiStreaming = true;
+  $("ai-send").textContent = "…";
+  $("ai-state").textContent = "回复中";
+  // 占位气泡（创建一次不再重绘）+ 累积流
+  var body = aiMsgEl("assistant", "", true);
+  var acc = "";
+  // 监听先于 invoke（块可能立刻到达）
+  var off = bridge.listen("http:chunk", function (p) {
+    if (p.done) { return; }
+    acc += p.delta || "";
+    aiSetBody(body, sseToText(acc));
+  });
+  var payload = JSON.stringify({
+    model: aiCfg.model,
+    messages: [{ role: "system", content: "你是 cjnote 的写作助手，回答简洁、适合放进步骤笔记。" }].concat(aiHistory),
+    stream: true
+  });
+  invoke("http:postStream", {
+    url: aiCfg.base,
+    body: payload,
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + aiCfg.key }
+  }).then(function (stat) {
+    off();
+    // 空回复必须可见：一条 data: 行都没有 ≠ 成功——多半是端点/白名单不对（ai-chat 实测教训）
+    var full = sseToText(acc);
+    if (full === "") {
+      full = "**[错误]** 没有收到任何流式内容（HTTP " + (stat && stat.status ? stat.status : "?") +
+        "，共 " + (stat && stat.received ? stat.received : 0) + " 字节）。" +
+        "检查 Base URL 是否为完整的 chat/completions 端点、是否在 http 白名单内。";
+    }
+    aiHistory.push({ role: "assistant", content: full });
+    aiSetBody(body, full);
+    aiStreaming = false;
+    $("ai-send").textContent = "发送";
+    $("ai-state").textContent = "就绪";
+  }).catch(function (e) {
+    off();
+    var msg = "**[错误]** 请求失败：" + (e && e.message ? e.message : String(e));
+    aiHistory.push({ role: "assistant", content: msg });
+    aiSetBody(body, msg);
+    aiStreaming = false;
+    $("ai-send").textContent = "发送";
+    $("ai-state").textContent = "出错";
+  });
+}
+// 设置面板（配置链路 #3 接 store 持久化后启用）
+function aiShowSetup(msg) {
+  var box = $("ai-msgs");
+  box.innerHTML = "";
+  var setup = document.createElement("div");
+  setup.id = "ai-setup";
+  setup.innerHTML =
+    (msg ? '<div class="ai-hint">' + msg + "</div>" : "") +
+    '<label>Base URL（完整 chat/completions 端点）</label>' +
+    '<input id="cfg-base" placeholder="https://api.deepseek.com/chat/completions">' +
+    '<label>API Key</label>' +
+    '<input id="cfg-key" type="password" placeholder="sk-…">' +
+    '<label>模型名</label>' +
+    '<input id="cfg-model" placeholder="deepseek-chat">' +
+    '<div class="save-row"><button id="cfg-save">保存</button></div>';
+  box.appendChild(setup);
+  $("cfg-base").value = aiCfg.base;
+  $("cfg-key").value = aiCfg.key;
+  $("cfg-model").value = aiCfg.model;
+  $("cfg-save").onclick = function () {
+    aiCfg.base = $("cfg-base").value.trim();
+    aiCfg.key = $("cfg-key").value.trim();
+    aiCfg.model = $("cfg-model").value.trim();
+    aiSaveCfg().then(function () {
+      box.innerHTML = "";
+      $("ai-state").textContent = aiCfg.base ? "就绪" : "未配置";
+      aiMsgEl("assistant", "配置已保存。在左边写笔记，有需要随时问我。");
+    });
+  };
+}
+function aiSaveCfg() {
+  return invoke("store:set", { key: "ai.config", value: JSON.stringify(aiCfg) }).catch(function (e) {
+    report("SELFCHECK FAIL cfg save: " + e);
+  });
+}
+function aiLoadCfg() {
+  // 探针配置优先（CJNOTE_PROBE_AI 注入的 window.__CJNOTE_AI_CFG__）：无人值守验证管道用
+  if (window.__CJNOTE_AI_CFG__ && window.__CJNOTE_AI_CFG__.base) {
+    aiCfg = { base: window.__CJNOTE_AI_CFG__.base, key: window.__CJNOTE_AI_CFG__.key || "probe", model: window.__CJNOTE_AI_CFG__.model || "mock" };
+    return Promise.resolve(aiCfg);
+  }
+  return invoke("store:get", { key: "ai.config" }).then(function (r) {
+    // store:get 返回 {value} 或 null（键不存在），两条都收
+    if (r && typeof r.value === "string" && r.value) {
+      try {
+        var j = JSON.parse(r.value);
+        if (j && j.base) { aiCfg = { base: j.base || "", key: j.key || "", model: j.model || "" }; }
+      } catch (e) {}
+    }
+    return aiCfg;
+  }).catch(function () { return aiCfg; });
+}
 
 // ── 笔记列表（M2：走自研 NoteStore，note:list/open/save/create/delete） ──
 function refreshList() {
@@ -292,7 +469,29 @@ function selfCheck(env) {
             var text = (r && typeof r.body === "string") ? r.body : "";
             ok(text.indexOf("<!-- probe -->") >= 0, "write-read roundtrip");
             setDoc(prev); saveCurrent();
-            report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+            // AI 流式探针（CJNOTE_PROBE_AI 注入配置时跑）：发一句、收流、断言非空
+            if (aiCfg.base && $("ai-state").textContent !== "未配置") {
+              $("ai-input").value = "ping";
+              aiSend();
+              var tries = 0;
+              (function waitAi() {
+                tries++;
+                var done = aiHistory.length >= 2 && aiHistory[aiHistory.length - 1].role === "assistant" &&
+                  (aiHistory[aiHistory.length - 1].content.length > 0);
+                if (done) {
+                  var reply = aiHistory[aiHistory.length - 1].content;
+                  ok(reply.indexOf("**[错误]**") !== 0 && reply.length > 0, "ai stream reply non-empty");
+                  report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                } else if (tries > 60) {
+                  ok(false, "ai stream reply timeout");
+                  report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                } else {
+                  setTimeout(waitAi, 100);
+                }
+              })();
+            } else {
+              report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+            }
           }).catch(function (e) { ok(false, "roundtrip read: " + e); report("SELFCHECK DONE passed=" + pass + " failed=" + fail); });
         });
       });
@@ -313,8 +512,22 @@ waitForBridge(function () {
     document.addEventListener("keydown", function (e) {
       if ((e.ctrlKey || e.metaKey) && e.key === "s" && cm) { e.preventDefault(); saveCurrent(); }
     });
+    // AI 侧栏接线：发送按钮 + Enter 发送（Shift+Enter 换行）
+    document.getElementById("ai-send").onclick = aiSend;
+    document.getElementById("ai-input").addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); aiSend(); }
+    });
     refreshList().then(function (list) {
       if (list.length > 0) { openNote(list[0]); }
+    });
+    // 配置链路（#3）：启动即读 store，配置齐则侧栏就绪，缺则弹设置面板
+    aiLoadCfg().then(function (cfg) {
+      if (cfg.base && cfg.model) {
+        $("ai-state").textContent = "就绪";
+        aiMsgEl("assistant", "我在。写笔记时有需要随时问我。");
+      } else {
+        aiShowSetup("");
+      }
     });
     selfCheck(env);
   }).catch(function (e) {
