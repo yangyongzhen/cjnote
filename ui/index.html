@@ -147,7 +147,13 @@ body {
     </div>
   </div>
   <div id="ai">
-    <div class="head"><span>AI 助手</span><span class="state" id="ai-state">未配置</span></div>
+    <div class="head">
+      <span>AI 助手</span>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--fg-dim);margin-right:8px;">
+        <input type="checkbox" id="ai-ref-note"> 引用当前笔记
+      </label>
+      <span class="state" id="ai-state">未配置</span>
+    </div>
     <div id="ai-msgs"></div>
     <div id="ai-input-row">
       <textarea id="ai-input" placeholder="问点什么…（Enter 发送）"></textarea>
@@ -273,6 +279,18 @@ function sseToText(acc) {
   }
   return out;
 }
+// 组 messages：system 基底 + 「引用当前笔记」勾选时注入当前文档全文（M4）
+function buildAiMessages() {
+  var sys = "你是 cjnote 的写作助手，回答简洁、适合放进步骤笔记。";
+  var ref = document.getElementById("ai-ref-note");
+  if (ref && ref.checked && current) {
+    var doc = getDoc();
+    if (doc.length > 0) {
+      sys += "\n\n用户当前正在编辑的笔记《" + current + "》全文如下，回答时结合它的内容：\n\n" + doc;
+    }
+  }
+  return [{ role: "system", content: sys }].concat(aiHistory);
+}
 function aiSend() {
   if (aiStreaming) { return; }
   var input = $("ai-input");
@@ -299,7 +317,7 @@ function aiSend() {
   });
   var payload = JSON.stringify({
     model: aiCfg.model,
-    messages: [{ role: "system", content: "你是 cjnote 的写作助手，回答简洁、适合放进步骤笔记。" }].concat(aiHistory),
+    messages: buildAiMessages(),
     stream: true
   });
   invoke("http:postStream", {
@@ -481,7 +499,29 @@ function selfCheck(env) {
                 if (done) {
                   var reply = aiHistory[aiHistory.length - 1].content;
                   ok(reply.indexOf("**[错误]**") !== 0 && reply.length > 0, "ai stream reply non-empty");
-                  report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                  // M4 断言：勾上「引用当前笔记」再发一轮，mock 校验 system 里带当前笔记全文则回显 REF-OK
+                  var ref = $("ai-ref-note");
+                  if (ref && current) {
+                    ref.checked = true;
+                    $("ai-input").value = "summarize";
+                    aiSend();
+                    var t2 = 0;
+                    (function waitRef() {
+                      t2++;
+                      if (aiHistory.length >= 4 && aiHistory[3].role === "assistant" && aiHistory[3].content.length > 0) {
+                        var r2 = aiHistory[3].content;
+                        ok(r2.indexOf("REF-OK") === 0, "note context in request body");
+                        report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                      } else if (t2 > 60) {
+                        ok(false, "note context reply timeout");
+                        report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                      } else {
+                        setTimeout(waitRef, 100);
+                      }
+                    })();
+                  } else {
+                    report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                  }
                 } else if (tries > 60) {
                   ok(false, "ai stream reply timeout");
                   report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
