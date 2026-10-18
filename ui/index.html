@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="apptheme-system">
 <head>
 <meta charset="UTF-8">
 <title>cjnote — AI 笔记</title>
@@ -11,6 +11,21 @@
   --bg: #1e2229; --bg2: #262b34; --bg3: #2d3340;
   --fg: #d8dee6; --fg-dim: #8b93a3; --accent: #4f9cf9;
   --border: #363d4a; --ok: #58c288; --warn: #e0b25a;
+}
+/* 界面主题：html 根类换一套 CSS 变量（默认 apptheme-system）。
+   :root 的深色值就是 system 在「系统深色」下的落点；浅色两处共用同一套变量，
+   改浅色配色只改一份，别在媒体查询里另抄一遍。 */
+html.apptheme-light {
+  --bg: #f7f8fa; --bg2: #eef1f6; --bg3: #e3e8f0;
+  --fg: #232833; --fg-dim: #66707f; --accent: #2f6fd0;
+  --border: #d5dbe6; --ok: #2f8f5b; --warn: #b57d1c;
+}
+@media (prefers-color-scheme: light) {
+  html.apptheme-system {
+    --bg: #f7f8fa; --bg2: #eef1f6; --bg3: #e3e8f0;
+    --fg: #232833; --fg-dim: #66707f; --accent: #2f6fd0;
+    --border: #d5dbe6; --ok: #2f8f5b; --warn: #b57d1c;
+  }
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
@@ -32,6 +47,14 @@ body {
   border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 13px;
 }
 #topbar button:hover { border-color: var(--accent); }
+/* 视图三态分段按钮（编辑 / 都展示 / 预览）：连体按钮组，选中段用强调色描边 */
+#topbar .seg { display: inline-flex; }
+#topbar .segbtn {
+  border-radius: 0; border-right-width: 0; padding: 4px 10px; font-size: 12px;
+}
+#topbar .segbtn:first-child { border-radius: 5px 0 0 5px; }
+#topbar .segbtn:last-child { border-radius: 0 5px 5px 0; border-right-width: 1px; }
+#topbar .segbtn.active { color: var(--accent); border-color: var(--accent); background: var(--bg); font-weight: 600; }
 /* ── 三栏 ── */
 #main { flex: 1 1 auto; display: flex; min-height: 0; }
 #sidebar {
@@ -54,15 +77,29 @@ body {
 #work { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; }
 #editor-pane, #preview-pane { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column; }
 #preview-pane { border-left: 1px solid var(--border); }
+/* 视图三态：#work 上的 mode-* 类决定哪一栏可见；单栏时铺满并去掉分隔线 */
+#work.mode-edit #preview-pane, #work.mode-preview #editor-pane { display: none; }
+#work.mode-edit #editor-pane, #work.mode-preview #preview-pane { flex-basis: 100%; }
+#work.mode-preview #preview-pane { border-left: 0; }
 .pane-tip { flex: 0 0 auto; padding: 4px 12px; font-size: 11px; color: var(--fg-dim); background: var(--bg2); }
 #editor-wrap { flex: 1 1 auto; min-height: 0; }
 #editor-wrap .CodeMirror { height: 100%; }
+/* CodeMirror 只内联了默认（浅色）主题：深色界面下按变量覆盖一遍，
+   否则深色 UI 中间嵌一块白板，「跟随系统」就不成立。dark-ui 由 JS 按生效主题加在 html 上。 */
+html.dark-ui #editor-wrap .CodeMirror,
+html.dark-ui #editor-wrap .CodeMirror-gutters { background: var(--bg); color: var(--fg); }
+html.dark-ui #editor-wrap .CodeMirror-gutters { border-right: 1px solid var(--border); }
+html.dark-ui #editor-wrap .CodeMirror-linenumber { color: var(--fg-dim); }
+html.dark-ui #editor-wrap .CodeMirror-cursor { border-left: 2px solid var(--accent); }
+html.dark-ui #editor-wrap .CodeMirror-selected,
+html.dark-ui #editor-wrap .CodeMirror-focused .CodeMirror-selected { background: var(--bg3); }
+html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--bg2); }
 #editor-fallback {
   width: 100%; height: 100%; border: none; resize: none; outline: none;
   background: var(--bg); color: var(--fg); padding: 12px; font: 14px/1.6 monospace; display: none;
 }
 #preview { flex: 1 1 auto; overflow-y: auto; padding: 16px 22px; line-height: 1.7; }
-#preview h1, #preview h2, #preview h3 { margin: 14px 0 8px; color: #e8edf4; }
+#preview h1, #preview h2, #preview h3 { margin: 14px 0 8px; color: var(--fg); }
 #preview p { margin: 8px 0; }
 #preview pre { background: var(--bg3); padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 10px 0; }
 #preview code { font-family: Consolas, monospace; font-size: 13px; }
@@ -149,6 +186,12 @@ body {
   <span class="logo">cjnote</span>
   <span class="doc-title" id="doc-title">（未打开）</span>
   <span class="spacer"></span>
+  <span class="seg" id="mode-seg">
+    <button id="mode-edit" class="segbtn" title="只看编辑（Ctrl+1）">编辑</button>
+    <button id="mode-split" class="segbtn active" title="编辑 + 预览（Ctrl+2）">都展示</button>
+    <button id="mode-preview" class="segbtn" title="只看预览（Ctrl+3）">预览</button>
+  </span>
+  <button id="btn-theme" title="界面主题：跟随系统 / 浅色 / 深色">跟随系统</button>
   <button id="btn-save" title="Ctrl+S">保存</button>
   <button id="btn-new">新建</button>
 </div>
@@ -448,11 +491,11 @@ function aiLoadCfg() {
     aiCfg = { base: window.__CJNOTE_AI_CFG__.base, key: window.__CJNOTE_AI_CFG__.key || "probe", model: window.__CJNOTE_AI_CFG__.model || "mock" };
     return Promise.resolve(aiCfg);
   }
-  return invoke("store:get", { key: "ai.config" }).then(function (r) {
-    // store:get 返回 {value} 或 null（键不存在），两条都收
-    if (r && typeof r.value === "string" && r.value) {
+  return invoke("store:get", { key: "ai.config" }).then(function (v) {
+    // 同上：store:get 给裸值（字符串或 JSON null），键不存在时是 null
+    if (typeof v === "string" && v) {
       try {
-        var j = JSON.parse(r.value);
+        var j = JSON.parse(v);
         if (j && j.base) { aiCfg = { base: j.base || "", key: j.key || "", model: j.model || "" }; }
       } catch (e) {}
     }
@@ -521,6 +564,83 @@ function newNote() {
   }).catch(function (e) { report("SELFCHECK FAIL create: " + e); });
 }
 
+// ── 视图三态（编辑 / 都展示 / 预览）──
+// 页面结构固定为两栏，「哪一栏可见」交给 #work 上的 mode-* 类（布局是 CSS 的事，JS 只切类）。
+// 选择存 store：重启恢复上次；store 往返失败不影响当次（只少一条记忆）。
+var VIEW_KEY = "ui.viewmode";
+var viewNames = { edit: "mode-edit", split: "mode-split", preview: "mode-preview" };
+
+function applyViewMode(mode, remember) {
+  if (!viewNames[mode]) { mode = "split"; }
+  $("work").className = "mode-" + mode;
+  for (var k in viewNames) {
+    var b = $(viewNames[k]);
+    if (b) { b.className = "segbtn" + (k === mode ? " active" : ""); }
+  }
+  // 编辑器被隐藏期间 CodeMirror 量不到尺寸，回到可见态必须重新量一次，否则光标/滚动错位
+  if (cm && mode !== "preview") { try { cm.refresh(); } catch (e) {} }
+  if (remember !== false) {
+    invoke("store:set", { key: VIEW_KEY, value: mode }).catch(function (e) {
+      report("SELFCHECK FAIL view persist: " + e);
+    });
+  }
+  report("UI view " + mode);
+}
+
+function loadUiPrefs() {
+  // store:get 返回的是裸值（缺失回 JSON null），不是 {value} 包装——按 typeof 判，别取 .value
+  invoke("store:get", { key: VIEW_KEY }).then(function (v) {
+    if (typeof v === "string") { applyViewMode(v, false); }
+  }).catch(function () {});
+  invoke("store:get", { key: THEME_KEY }).then(function (v) {
+    if (typeof v === "string") { applyAppTheme(v, false); }
+  }).catch(function () {});
+}
+
+// ── 界面主题（默认跟随系统，可手动覆盖）──
+// system = 交给 prefers-color-scheme（浅色/深色两套变量已在 CSS 里写好），
+// light/dark = 强制某一套。按钮按 system → light → dark 循环，当前值写在按钮文字上。
+var THEME_KEY = "ui.apptheme";
+var themeOrder = ["system", "light", "dark"];
+var themeNames = { system: "跟随系统", light: "浅色", dark: "深色" };
+var curTheme = "system";
+
+function applyAppTheme(name, remember) {
+  if (themeOrder.indexOf(name) < 0) { name = "system"; }
+  curTheme = name;
+  document.documentElement.className = "apptheme-" + name;
+  syncDarkUi();
+  var b = $("btn-theme");
+  if (b) { b.textContent = themeNames[name]; }
+  if (remember !== false) {
+    invoke("store:set", { key: THEME_KEY, value: name }).catch(function (e) {
+      report("SELFCHECK FAIL theme persist: " + e);
+    });
+  }
+  report("UI apptheme " + name);
+}
+
+/** 「最终是不是深色」单独算：system 要问系统，light/dark 直接定。
+ *  CodeMirror 覆盖样式挂 dark-ui 上，避免在 CSS 里把 system 的媒体查询抄两遍。 */
+function syncDarkUi() {
+  var dark = curTheme === "dark";
+  if (curTheme === "system" && window.matchMedia) {
+    dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  document.documentElement.classList.toggle("dark-ui", dark);
+}
+if (window.matchMedia) {
+  try {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+      if (curTheme === "system") { syncDarkUi(); }
+    });
+  } catch (e) { /* 老引擎只支持 addListener：跟随系统在本次会话内不即时切换，不影响正确性 */ }
+}
+
+function cycleAppTheme() {
+  applyAppTheme(themeOrder[(themeOrder.indexOf(curTheme) + 1) % themeOrder.length]);
+}
+
 // ── 自检（CJNOTE_SELFCHECK=1 时跑一轮，全部经 report 回投 stderr） ──
 function selfCheck(env) {
   if (!env || !env.selfcheck) { return; }
@@ -532,6 +652,25 @@ function selfCheck(env) {
   }
   ok(!!bridge, "bridge ready");
   ok(!!(cm || $("editor-fallback")), "editor ready");
+  // 视图三态与界面主题：切类后计算样式真变了才算数，验完复原到用户当前选择
+  var viewBefore = ($("work").className || "").replace("mode-", "") || "split";
+  applyViewMode("edit", false);
+  ok(getComputedStyle($("preview-pane")).display === "none" && getComputedStyle($("editor-pane")).display !== "none", "view edit hides preview");
+  applyViewMode("preview", false);
+  ok(getComputedStyle($("editor-pane")).display === "none" && getComputedStyle($("preview-pane")).display !== "none", "view preview hides editor");
+  applyViewMode("split", false);
+  ok(getComputedStyle($("editor-pane")).display !== "none" && getComputedStyle($("preview-pane")).display !== "none", "view split shows both");
+  applyViewMode(viewBefore, false);
+  var themeBefore = curTheme;
+  applyAppTheme("light", false);
+  var bgLight = getComputedStyle(document.body).backgroundColor;
+  applyAppTheme("dark", false);
+  var bgDark = getComputedStyle(document.body).backgroundColor;
+  applyAppTheme("system", false);
+  ok(document.documentElement.className === "apptheme-system", "apptheme defaults to system");
+  ok(bgLight !== bgDark, "light and dark palettes differ");
+  applyAppTheme(themeBefore, false);
+  report("UI system-light=" + (window.matchMedia("(prefers-color-scheme: light)").matches ? "1" : "0"));
   ok(!!window.marked, "marked ready");
   refreshList().then(function (list) {
     ok(list.length >= 1, "note list non-empty");
@@ -831,8 +970,18 @@ waitForBridge(function () {
     document.getElementById("btn-save").onclick = function () { saveCurrent(); };
     document.getElementById("btn-new").onclick = function () { newNote(); };
     document.getElementById("btn-refresh").onclick = function () { refreshList(); };
+    // 视图三态：页内分段按钮与 Ctrl+1/2/3 走同一个 applyViewMode，行为天然一致
+    document.getElementById("mode-edit").onclick = function () { applyViewMode("edit"); };
+    document.getElementById("mode-split").onclick = function () { applyViewMode("split"); };
+    document.getElementById("mode-preview").onclick = function () { applyViewMode("preview"); };
+    document.getElementById("btn-theme").onclick = cycleAppTheme;
+    loadUiPrefs();
     document.addEventListener("keydown", function (e) {
       if ((e.ctrlKey || e.metaKey) && e.key === "s" && cm) { e.preventDefault(); saveCurrent(); }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "1" || e.key === "2" || e.key === "3")) {
+        e.preventDefault();
+        applyViewMode({ "1": "edit", "2": "split", "3": "preview" }[e.key]);
+      }
     });
     // AI 侧栏接线：发送按钮 + Enter 发送（Shift+Enter 换行）
     document.getElementById("ai-send").onclick = aiSend;

@@ -2,3 +2,5 @@ target/
 cjpm.lock
 notes/
 *.log
+# store 插件的落盘（界面偏好 / ai.config），属于本机运行期数据
+store.json
