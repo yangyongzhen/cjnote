@@ -40,21 +40,77 @@ body {
   padding: 0 14px; background: var(--bg2); border-bottom: 1px solid var(--border);
 }
 #topbar .logo { font-weight: 600; color: var(--accent); }
+/* 顶栏只剩 logo / 标题 / 一个工具按钮三层：logo 前加一枚实心小方块定住视觉起点，
+   标题前一条斜杠做分隔，右侧按钮才不会显得孤零零地吊在行尾 */
+#topbar .logo::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 2px;
+  background: var(--accent); margin-right: 7px; vertical-align: 2px;
+}
 #topbar .doc-title { color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#topbar .doc-title::before { content: "/"; color: var(--border); margin: 0 9px 0 1px; }
+/* 文档状态：圆点跟上 dirty（强调色=有改动，淡灰=已保存），右侧给字数留位。
+   两者都是 12px 次级信息，视线仍落在标题上 */
+#topbar .doc-state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--accent); }
+#topbar .doc-state i { display: block; flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+#topbar .doc-state b { font-weight: 400; }
+#topbar .doc-state.saved { color: var(--fg-dim); opacity: .8; }
+#topbar .doc-stat { font-size: 12px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
 #topbar .spacer { flex: 1 1 auto; }
 #topbar button {
   background: var(--bg3); color: var(--fg); border: 1px solid var(--border);
   border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 13px;
 }
 #topbar button:hover { border-color: var(--accent); }
-/* 视图三态分段按钮（编辑 / 都展示 / 预览）：连体按钮组，选中段用强调色描边 */
-#topbar .seg { display: inline-flex; }
-#topbar .segbtn {
-  border-radius: 0; border-right-width: 0; padding: 4px 10px; font-size: 12px;
+/* 主题切换：低存在感的圆形图标按钮。顶栏右侧只有它一个控件，写成长条文字按钮
+   （原「跟随系统」）会把整行的视觉重量压到右边。图标用纯 CSS 画圆——字体里的
+   ☀/☾ 在 Linux 上常缺字，靠字符会变成豆腐块。 */
+#btn-theme {
+  width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border-color: transparent; color: var(--fg-dim);
 }
-#topbar .segbtn:first-child { border-radius: 5px 0 0 5px; }
-#topbar .segbtn:last-child { border-radius: 0 5px 5px 0; border-right-width: 1px; }
-#topbar .segbtn.active { color: var(--accent); border-color: var(--accent); background: var(--bg); font-weight: 600; }
+#btn-theme:hover { color: var(--accent); background: var(--bg3); border-color: var(--border); }
+#btn-theme .ic {
+  display: block; width: 13px; height: 13px; border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+/* 三种状态一眼可分：半亮=跟随系统、空=浅色、实心=深色 */
+#btn-theme.theme-system .ic { background: linear-gradient(90deg, currentColor 50%, transparent 50%); }
+#btn-theme.theme-light .ic { background: transparent; }
+#btn-theme.theme-dark .ic { background: currentColor; }
+/* 主题选择弹层：挂在按钮下沿右对齐。自绘（不走原生菜单）是为了贴住按钮位置，
+   选中后还要回调仓颉侧把原生「视图→界面主题」的勾选同步过去（theme:apply） */
+.theme-wrap { position: relative; display: inline-flex; }
+.popmenu {
+  position: absolute; right: 0; top: calc(100% + 6px); min-width: 132px; padding: 4px;
+  display: flex; flex-direction: column; gap: 2px; z-index: 60;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .18);
+}
+.popmenu[hidden] { display: none !important; }
+/* 覆盖 #topbar button 的长条内边距：弹层里是列表项不是按钮 */
+#topbar .popmenu button {
+  width: 100%; text-align: left; padding: 6px 10px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--fg); font-size: 13px;
+}
+#topbar .popmenu button:hover { background: var(--bg3); }
+#topbar .popmenu button.on { color: var(--accent); font-weight: 600; }
+#topbar .popmenu button.on::after { content: "✓"; float: right; }
+/* 宿主支持原生标题行（Linux：与菜单栏同排的副标题）时整条页面顶栏让出来，
+   标题/状态/字数改由宿主那行显示——省掉一整行高度。不支持的平台（Windows）
+   保持原样，别删了顶栏却没有替代。 */
+body.native-titlebar #topbar { display: none; }
+/* 视图三态分段按钮（编辑 / 预览 / 分屏）：连体按钮组，选中段用强调色描边。
+   位置在编辑区最上方的 #work-head 左侧——放顶栏离笔记内容太远，放栏内则「预览」时随栏一起消失 */
+.seg { display: inline-flex; }
+.segbtn {
+  background: var(--bg3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 0; border-right-width: 0; padding: 3px 10px; cursor: pointer; font-size: 12px;
+}
+.segbtn:first-child { border-radius: 5px 0 0 5px; }
+.segbtn:last-child { border-radius: 0 5px 5px 0; border-right-width: 1px; }
+.segbtn:hover { border-color: var(--accent); }
+.segbtn.active { color: var(--accent); border-color: var(--accent); background: var(--bg); font-weight: 600; }
 /* ── 三栏 ── */
 #main { flex: 1 1 auto; display: flex; min-height: 0; }
 #sidebar {
@@ -67,21 +123,44 @@ body {
 }
 #sidebar .head button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 16px; }
 #note-list { flex: 1 1 auto; overflow-y: auto; padding: 4px 6px; }
+/* 侧栏两页签：笔记列表 / 大纲（同一块区域切内容，形态对齐 markdown-notes） */
+#sidebar .side-tabs { display: flex; gap: 4px; }
+#sidebar .side-tab {
+  background: none; border: none; padding: 2px 8px; border-radius: 5px; cursor: pointer;
+  font-size: 12px; letter-spacing: 0; color: var(--fg-dim);
+}
+#sidebar .side-tab.active { background: var(--bg3); color: var(--fg); }
+#sidebar .side-body { flex: 1 1 auto; overflow-y: auto; padding: 4px 6px; }
+#outline .out {
+  padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-dim);
+}
+#outline .out:hover { background: var(--bg3); }
+#outline .out.lv2 { padding-left: 22px; }
+#outline .out.lv3 { padding-left: 34px; }
+#outline .empty { padding: 10px; font-size: 12px; color: var(--fg-dim); }
 .note-item {
   padding: 7px 10px; border-radius: 6px; cursor: pointer; margin-bottom: 2px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-dim);
 }
 .note-item:hover { background: var(--bg3); }
 .note-item.active { background: var(--bg3); color: var(--fg); border-left: 2px solid var(--accent); }
-/* 中栏：编辑 + 预览 */
-#work { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; }
+/* 中栏：顶部一条工具条（视图三态切换）+ 下方的编辑 / 预览两栏。
+   工具条必须独立于两栏：它要撑住三态——「预览」时编辑栏是 display:none，
+   切换器若长在编辑栏里就跟着没了，用户回不到编辑态 */
+#work { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#work-head {
+  flex: 0 0 auto; height: 32px; display: flex; align-items: center; gap: 10px;
+  padding: 0 10px; background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+#work-head .work-tip { font-size: 11px; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#work-body { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; }
 #editor-pane, #preview-pane { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column; }
 #preview-pane { border-left: 1px solid var(--border); }
 /* 视图三态：#work 上的 mode-* 类决定哪一栏可见；单栏时铺满并去掉分隔线 */
 #work.mode-edit #preview-pane, #work.mode-preview #editor-pane { display: none; }
 #work.mode-edit #editor-pane, #work.mode-preview #preview-pane { flex-basis: 100%; }
 #work.mode-preview #preview-pane { border-left: 0; }
-.pane-tip { flex: 0 0 auto; padding: 4px 12px; font-size: 11px; color: var(--fg-dim); background: var(--bg2); }
 #editor-wrap { flex: 1 1 auto; min-height: 0; }
 #editor-wrap .CodeMirror { height: 100%; }
 /* CodeMirror 只内联了默认（浅色）主题：深色界面下按变量覆盖一遍，
@@ -178,6 +257,48 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
 }
 #diff-bar .accept { background: var(--ok); color: #06281a; }
 #diff-bar .reject { background: var(--bg2); color: var(--fg-dim); border: 1px solid var(--border); }
+/* ── 「关于」浮层（帮助菜单 → 关于 cjnote…）：轻量自绘，不走原生对话框
+   （本工程没接 dialog 插件；一个静态说明也不该为它引一份宿主能力） ── */
+#about-card {
+  /* 四边显式写，不用 `inset: 0`：本机 WebKitGTK 不认这个简写，浮层会被压成 0×0
+     ——display 照样是 flex（自检绿）、画面上什么都没有（只能抓图看出来） */
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 200; display: none;
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.45);
+}
+#about-card.on { display: flex; }
+#about-card .about-box {
+  width: 380px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px 22px; box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+#about-card .about-title { font-size: 17px; font-weight: 600; margin-bottom: 10px; }
+#about-card .about-line { font-size: 12.5px; color: var(--fg); line-height: 1.7; }
+#about-card .about-dim { color: var(--fg-dim); }
+#about-card button {
+  margin-top: 16px; width: 100%; padding: 7px 0; cursor: pointer;
+  background: var(--accent); color: #fff; border: none; border-radius: 6px;
+}
+/* ── 「快速打开」浮层（Ctrl+P / 文件菜单 → 快速打开…）：页内搜索笔记库，不起原生对话框。
+   定位同样四边显式写（`inset` 在本机 WebKitGTK 不生效，见上面关于浮层那条注释） ── */
+#quick-open {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 210; display: none;
+  align-items: flex-start; justify-content: center; background: rgba(0,0,0,0.35);
+}
+#quick-open.on { display: flex; }
+#quick-open .quick-box {
+  margin-top: 90px; width: 460px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+#quick-input {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 13px;
+}
+#quick-list { max-height: 300px; overflow-y: auto; margin-top: 8px; }
+#quick-list .quick-item {
+  padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--fg-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#quick-list .quick-item:hover, #quick-list .quick-item.sel { background: var(--bg3); color: var(--fg); }
+#quick-list .empty { padding: 10px; font-size: 12px; color: var(--fg-dim); }
 /* 顶栏右侧缩放补偿（AGENTS §4 zoom 坑：本页不缩放，占位说明） */
 </style>
 </head>
@@ -185,15 +306,17 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
 <div id="topbar">
   <span class="logo">cjnote</span>
   <span class="doc-title" id="doc-title">（未打开）</span>
+  <span class="doc-state saved" id="doc-state" title="已保存"><i></i><b>已保存</b></span>
   <span class="spacer"></span>
-  <span class="seg" id="mode-seg">
-    <button id="mode-edit" class="segbtn" title="只看编辑（Ctrl+1）">编辑</button>
-    <button id="mode-split" class="segbtn active" title="编辑 + 预览（Ctrl+2）">都展示</button>
-    <button id="mode-preview" class="segbtn" title="只看预览（Ctrl+3）">预览</button>
-  </span>
-  <button id="btn-theme" title="界面主题：跟随系统 / 浅色 / 深色">跟随系统</button>
-  <button id="btn-save" title="Ctrl+S">保存</button>
-  <button id="btn-new">新建</button>
+  <span class="doc-stat" id="doc-stat"></span>
+  <div class="theme-wrap">
+    <button id="btn-theme" class="theme-system" title="界面主题：跟随系统（点击选择）" aria-label="选择界面主题"><span class="ic"></span></button>
+    <div class="popmenu" id="theme-menu" hidden>
+      <button type="button" data-theme="system">跟随系统</button>
+      <button type="button" data-theme="light">浅色</button>
+      <button type="button" data-theme="dark">深色</button>
+    </div>
+  </div>
 </div>
 <div id="main">
   <div id="sel-bar">
@@ -202,23 +325,38 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
     <button data-act="translate">翻译</button>
   </div>
   <div id="sidebar">
-    <div class="head"><span>笔记</span><button id="btn-refresh" title="刷新列表">⟳</button></div>
-    <div id="note-list"></div>
+    <div class="head">
+      <span class="side-tabs">
+        <button id="tab-notes" class="side-tab active">笔记</button>
+        <button id="tab-outline" class="side-tab">大纲</button>
+      </span>
+      <button id="btn-refresh" title="刷新列表">⟳</button>
+    </div>
+    <div id="note-list" class="side-body"></div>
+    <div id="outline" class="side-body" style="display:none"></div>
   </div>
   <div id="work">
-    <div id="editor-pane">
-      <div class="pane-tip">编辑（Markdown）</div>
-      <div id="editor-wrap"></div>
-      <textarea id="editor-fallback" spellcheck="false"></textarea>
-      <div id="diff-bar">
-        <span class="diff-title" id="diff-title"></span>
-        <button class="accept" id="diff-accept">接受</button>
-        <button class="reject" id="diff-reject">丢弃</button>
-      </div>
+    <div id="work-head">
+      <span class="seg" id="mode-seg">
+        <button id="mode-edit" class="segbtn" title="只看编辑（Ctrl+1）">编辑</button>
+        <button id="mode-preview" class="segbtn" title="只看预览（Ctrl+2）">预览</button>
+        <button id="mode-split" class="segbtn active" title="编辑 + 预览左右分屏（Ctrl+3）">分屏</button>
+      </span>
+      <span class="work-tip" id="work-tip">编辑 + 预览</span>
     </div>
-    <div id="preview-pane">
-      <div class="pane-tip">预览（实时）</div>
-      <div id="preview"></div>
+    <div id="work-body">
+      <div id="editor-pane">
+        <div id="editor-wrap"></div>
+        <textarea id="editor-fallback" spellcheck="false"></textarea>
+        <div id="diff-bar">
+          <span class="diff-title" id="diff-title"></span>
+          <button class="accept" id="diff-accept">接受</button>
+          <button class="reject" id="diff-reject">丢弃</button>
+        </div>
+      </div>
+      <div id="preview-pane">
+        <div id="preview"></div>
+      </div>
     </div>
   </div>
   <div id="ai">
@@ -237,6 +375,21 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
       <textarea id="ai-input" placeholder="问点什么…（Enter 发送）"></textarea>
       <button id="ai-send">发送</button>
     </div>
+  </div>
+</div>
+<div id="quick-open">
+  <div class="quick-box">
+    <input id="quick-input" placeholder="输入笔记名过滤…（Enter 打开，Esc 取消）">
+    <div id="quick-list"></div>
+  </div>
+</div>
+<div id="about-card">
+  <div class="about-box">
+    <div class="about-title">cjnote</div>
+    <div class="about-line">本地优先的 AI 笔记 —— 笔记是磁盘上的纯 .md 文件，AI 长在编辑工作流里。</div>
+    <div class="about-line about-dim" id="about-ver">仓颉 + cj-tauri</div>
+    <div class="about-line about-dim">菜单：文件（Ctrl+N / Ctrl+S）/ 视图（Ctrl+1·2·3）/ 帮助</div>
+    <button id="about-close">知道了</button>
   </div>
 </div>
 <script>
@@ -266,23 +419,87 @@ function initEditor() {
     cm = window.CodeMirror(wrap, {
       value: "", lineNumbers: true, lineWrapping: true,
       mode: "text/x-markdown", theme: "default",
-      extraKeys: { "Ctrl-S": function () { saveCurrent(); } }
+      extraKeys: {
+        "Ctrl-S": function () { saveCurrent(); },
+        // 编辑器内也各留一份：键盘焦点在 CodeMirror 里时 document 上的监听收不到
+        "Ctrl-O": function () { openViaDialog(); },
+        "Ctrl-P": function () { showQuickOpen(true); }
+      }
     });
-    cm.on("change", function () { dirty = true; renderPreview(cm.getValue()); });
+    cm.on("change", function () {
+      dirty = true; renderPreview(cm.getValue()); updateDocMeta();
+      if (sideTab === "outline") { renderOutline(); }
+    });
   } else {
     var ta = $("editor-fallback");
     ta.style.display = "block";
     wrap.style.display = "none";
-    ta.addEventListener("input", function () { dirty = true; renderPreview(ta.value); });
+    ta.addEventListener("input", function () {
+      dirty = true; renderPreview(ta.value); updateDocMeta();
+      if (sideTab === "outline") { renderOutline(); }
+    });
     document.addEventListener("keydown", function (e) {
       if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); saveCurrent(); }
     });
   }
 }
 function getDoc() { return cm ? cm.getValue() : $("editor-fallback").value; }
+// ── 顶栏文档状态：圆点表示有无未保存改动，右侧显示字数（按非空白字符算）──
+function docWordCount(text) { return String(text == null ? "" : text).replace(/\s+/g, "").length; }
+function updateDocMeta() {
+  var st = $("doc-state"), stat = $("doc-stat");
+  if (st) {
+    st.className = "doc-state" + (dirty ? "" : " saved");
+    st.title = dirty ? "有未保存的改动（Ctrl+S 保存）" : "已保存";
+    var b = st.getElementsByTagName("b")[0];
+    if (b) { b.textContent = dirty ? "未保存" : "已保存"; }
+  }
+  if (stat) { stat.textContent = docWordCount(getDoc()) + " 字"; }
+  // 同一份信息再上一行进原生标题栏（宿主不支持时这个调用什么也不显示）
+  if (!titlebarProbed) { syncNativeTitle(true); } else { syncNativeTitle(); }
+}
+
+// ── 原生标题行（与菜单栏同排的副标题）──
+// 能力探测就用第一次同步的返回值：supported=false 即本平台没这块（Windows 系统菜单没有
+// 自绘区），这时页面顶栏必须保留——删掉顶栏却没有替代会连文档名一起不见了。
+var titlebarSupported = false;
+var titlebarProbed = false;
+var titlebarTimer = 0;
+var lastTitlebarText = "";
+
+function nativeTitlebarText() {
+  var name = $("doc-title") ? $("doc-title").textContent : "";
+  return name + "  ·  " + (dirty ? "未保存" : "已保存") + "  ·  " + docWordCount(getDoc()) + " 字";
+}
+
+/** 把标题行推给宿主；编辑期高频调用，非首次一律 250ms 防抖（每键一次 FFI 没必要） */
+function syncNativeTitle(immediate) {
+  var text = nativeTitlebarText();
+  function send() {
+    titlebarTimer = 0;
+    if (titlebarProbed && titlebarSupported && text === lastTitlebarText) { return; }
+    invoke("titlebar:sync", { text: text }).then(function (r) {
+      var ok = !!(r && r.supported);
+      titlebarProbed = true;
+      if (ok !== titlebarSupported) {
+        titlebarSupported = ok;
+        if (ok) { document.body.classList.add("native-titlebar"); }
+        else { document.body.classList.remove("native-titlebar"); }
+        report("UI native titlebar " + (ok ? "on" : "off"));
+      }
+      lastTitlebarText = text;
+    }).catch(function (e) {
+      report("SELFCHECK FAIL native titlebar: " + e);
+    });
+  }
+  if (titlebarTimer) { clearTimeout(titlebarTimer); titlebarTimer = 0; }
+  if (immediate) { send(); return; }
+  titlebarTimer = setTimeout(send, 250);
+}
 function setDoc(text) {
   if (cm) { cm.setValue(text); } else { $("editor-fallback").value = text; }
-  renderPreview(text); dirty = false;
+  renderPreview(text); dirty = false; updateDocMeta();
+  if (sideTab === "outline") { renderOutline(); }
 }
 
 // ── 预览：marked 优先，缺失退化为纯文本 ──
@@ -373,6 +590,23 @@ function buildAiMessages(extra) {
   }
   return [{ role: "system", content: sys }].concat(aiHistory);
 }
+// Base URL 归一化：用户不必背「必须写完整 chat/completions 端点」
+//   裸域名 / 其它路径   → 追加 /v1/chat/completions
+//   以版本段结尾（/v1、/v4…）→ 追加 /chat/completions
+//   已含 /chat/completions   → 原样（只去尾部斜杠）
+// 这样 api.deepseek.com、api.deepseek.com/v1、…/v1/chat/completions 三种写法等价
+function normalizeBaseUrl(raw) {
+  var u = String(raw || "").trim();
+  while (u.length > 0 && u.charAt(u.length - 1) === "/") { u = u.slice(0, -1); }
+  if (u === "") { return ""; }
+  if (u.slice(-17) === "/chat/completions") { return u; }
+  var tail = u.slice(u.lastIndexOf("/") + 1);
+  // 版本段判定：v 开头 + 其后全数字（v1 / v4 / v1beta 都算版本段）
+  // 注意判定的是 v 之后的部分——拿整段去测 \D 会把 "v" 自己算成非数字，永远判不中
+  var verLike = tail.length > 1 && tail.charAt(0) === "v" && !/\D/.test(tail.slice(1).replace(/beta$/, ""));
+  if (verLike) { return u + "/chat/completions"; }
+  return u + "/v1/chat/completions";
+}
 function aiSend() {
   if (aiStreaming) { return; }
   var input = $("ai-input");
@@ -423,7 +657,7 @@ function aiStart(text, extra, hits) {
     stream: true
   });
   invoke("http:postStream", {
-    url: aiCfg.base,
+    url: normalizeBaseUrl(aiCfg.base),
     body: payload,
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + aiCfg.key }
   }).then(function (stat) {
@@ -433,7 +667,8 @@ function aiStart(text, extra, hits) {
     if (full === "") {
       full = "**[错误]** 没有收到任何流式内容（HTTP " + (stat && stat.status ? stat.status : "?") +
         "，共 " + (stat && stat.received ? stat.received : 0) + " 字节）。" +
-        "检查 Base URL 是否为完整的 chat/completions 端点、是否在 http 白名单内。";
+        "实际请求端点：" + normalizeBaseUrl(aiCfg.base) +
+        "。检查它是否可达、是否在 http 白名单内。";
     }
     aiHistory.push({ role: "assistant", content: full });
     aiSetBody(body, full);
@@ -458,8 +693,8 @@ function aiShowSetup(msg) {
   setup.id = "ai-setup";
   setup.innerHTML =
     (msg ? '<div class="ai-hint">' + msg + "</div>" : "") +
-    '<label>Base URL（完整 chat/completions 端点）</label>' +
-    '<input id="cfg-base" placeholder="https://api.deepseek.com/chat/completions">' +
+    '<label>Base URL（填到 /v1 即可，自动补 chat/completions）</label>' +
+    '<input id="cfg-base" placeholder="https://api.deepseek.com/v1">' +
     '<label>API Key</label>' +
     '<input id="cfg-key" type="password" placeholder="sk-…">' +
     '<label>模型名</label>' +
@@ -476,7 +711,10 @@ function aiShowSetup(msg) {
     aiSaveCfg().then(function () {
       box.innerHTML = "";
       $("ai-state").textContent = aiCfg.base ? "就绪" : "未配置";
-      aiMsgEl("assistant", "配置已保存。在左边写笔记，有需要随时问我。");
+      // 回一句实际请求端点：用户填裸域名也能立刻看出补成了什么，省一轮 404 排查
+      aiMsgEl("assistant", aiCfg.base
+        ? ("配置已保存。请求端点：" + normalizeBaseUrl(aiCfg.base) + "。在左边写笔记，有需要随时问我。")
+        : "配置已保存。在左边写笔记，有需要随时问我。");
     });
   };
 }
@@ -533,6 +771,71 @@ function renderList() {
     })(notes[i]);
   }
 }
+// ── 侧栏页签：笔记列表 / 大纲 ──
+var sideTab = "notes";
+function showSide(which) {
+  sideTab = (which === "outline") ? "outline" : "notes";
+  $("note-list").style.display = sideTab === "notes" ? "" : "none";
+  $("outline").style.display = sideTab === "outline" ? "" : "none";
+  $("tab-notes").className = "side-tab" + (sideTab === "notes" ? " active" : "");
+  $("tab-outline").className = "side-tab" + (sideTab === "outline" ? " active" : "");
+  $("btn-refresh").style.display = sideTab === "notes" ? "" : "none";
+  report("UI side " + sideTab);
+  if (sideTab === "outline") { renderOutline(); }
+}
+// 抽 1~3 级标题：围栏代码块里的 # 不算标题——与预览渲染器口径一致，
+// 否则代码块里的注释会把大纲撑歪（markdown-notes 同一坑已对齐）
+function outlineItems(md) {
+  var lines = String(md || "").split(/\r?\n/);
+  var out = [], inFence = false;
+  for (var i = 0; i < lines.length; i++) {
+    var ln = lines[i];
+    if (/^\s*(```|~~~)/.test(ln)) { inFence = !inFence; continue; }
+    if (inFence) { continue; }
+    var m = /^(#{1,3})\s+(.+?)\s*$/.exec(ln);
+    if (m) { out.push({ level: m[1].length, text: m[2], line: i }); }
+  }
+  return out;
+}
+function renderOutline() {
+  var box = $("outline");
+  while (box.firstChild) { box.removeChild(box.firstChild); }
+  var items = outlineItems(getDoc());
+  if (items.length === 0) {
+    var e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "（当前笔记没有 1~3 级标题）";
+    box.appendChild(e);
+    return;
+  }
+  for (var i = 0; i < items.length; i++) {
+    (function (it) {
+      var row = document.createElement("div");
+      row.className = "out" + (it.level >= 3 ? " lv3" : (it.level === 2 ? " lv2" : ""));
+      row.textContent = it.text;
+      row.title = "第 " + (it.line + 1) + " 行";
+      row.onclick = function () { jumpToLine(it.line); };
+      box.appendChild(row);
+    })(items[i]);
+  }
+}
+function jumpToLine(line) {
+  if (cm) {
+    cm.setCursor({ line: line, ch: 0 });
+    cm.scrollIntoView({ line: line, ch: 0 }, 60);
+    cm.focus();
+    return;
+  }
+  // 退化编辑器：按行偏移折算字符位置；textarea 不会自己滚到光标，按行高估个位置
+  var ta = $("editor-fallback");
+  var parts = ta.value.split(/\r?\n/);
+  var off = 0;
+  for (var i = 0; i < line && i < parts.length; i++) { off += parts[i].length + 1; }
+  ta.focus();
+  ta.setSelectionRange(off, off);
+  var lh = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+  ta.scrollTop = Math.max(0, line * lh - ta.clientHeight / 2);
+}
 function openNote(name) {
   return invoke("note:open", { name: name }).then(function (r) {
     var text = (r && typeof r.body === "string") ? r.body : "";
@@ -545,11 +848,14 @@ function openNote(name) {
   }).catch(function (e) { report("SELFCHECK FAIL read " + name + ": " + e); });
 }
 function saveCurrent() {
+  // 当前编辑的是笔记库外的文件（Ctrl+O 打开的草稿）：首次保存落成库里的新笔记
+  if (externalPath) { return saveExternalDraft(); }
   if (!current) { newNote(); return; }
   return invoke("note:save", { name: current, body: getDoc() }).then(function (r) {
     dirty = false;
     if (r && r.name) { current = r.name; }
     $("doc-title").textContent = current;
+    updateDocMeta();
     report("SELFCHECK PASS save " + current);
   }).catch(function (e) { report("SELFCHECK FAIL save: " + e); });
 }
@@ -564,7 +870,107 @@ function newNote() {
   }).catch(function (e) { report("SELFCHECK FAIL create: " + e); });
 }
 
-// ── 视图三态（编辑 / 都展示 / 预览）──
+// ── 打开：Ctrl+O 走原生文件对话框（库外草稿），Ctrl+P 走页内快速打开 ──
+// 两种语义分开：库内笔记用快速打开（快、无副作用）；库外的 .md 用对话框读进来，
+// **首次保存才落成新笔记**——不静默改写用户磁盘上的原文件。
+var externalPath = "";   // 非空 = 当前编辑的是笔记库外的文件
+
+function openViaDialog() {
+  // 两家「打开」共用一条入口线索：对话框是模态的，浮层留着会挡在它下面
+  showQuickOpen(false);
+  invoke("dialog:open", { title: "打开 Markdown 文件", filter: "Markdown|*.md|文本|*.txt|全部文件|*.*" })
+    .then(function (picked) {
+      if (!picked || typeof picked !== "string") { report("UI open canceled"); return null; }
+      return invoke("note:readExternal", { path: picked }).then(function (r) {
+        if (!r || typeof r.body !== "string") { return; }
+        externalPath = String(r.path || picked);
+        current = "";
+        $("doc-title").textContent = String(r.name || "外部文件") + "（外部）";
+        setDoc(r.body);
+        report("UI opened external " + externalPath);
+      });
+    })
+    .catch(function (e) { report("UI open failed: " + (e && e.message ? e.message : e)); });
+}
+
+function saveExternalDraft() {
+  var base = externalPath.replace(/^.*[\/\\]/, "").replace(/\.(md|markdown|txt)$/i, "");
+  return invoke("note:create", { title: base }).then(function (r) {
+    var name = (r && r.name) ? String(r.name) : "";
+    if (!name) { throw new Error("note:create 未返回笔记名"); }
+    return invoke("note:save", { name: name, body: getDoc() }).then(function (r2) {
+      externalPath = "";
+      current = (r2 && r2.name) ? String(r2.name) : name;
+      $("doc-title").textContent = current;
+      dirty = false;
+      updateDocMeta();
+      report("SELFCHECK PASS save external as " + current);
+      return refreshList();
+    });
+  }).catch(function (e) { report("SELFCHECK FAIL save external: " + (e && e.message ? e.message : e)); });
+}
+
+// 快速打开的过滤：大小写不敏感、空串列全部（纯函数，自检直接打它）
+function filterNotes(names, q) {
+  var s = String(q == null ? "" : q).trim().toLowerCase();
+  var out = [];
+  for (var i = 0; i < names.length; i++) {
+    if (s === "" || String(names[i]).toLowerCase().indexOf(s) >= 0) { out.push(names[i]); }
+  }
+  return out;
+}
+
+var quickItems = [], quickSel = 0;
+function showQuickOpen(on) {
+  var box = $("quick-open");
+  if (!box) { return; }
+  if (on === false) { box.classList.remove("on"); return; }
+  box.classList.add("on");
+  $("quick-input").value = "";
+  quickSel = 0;
+  renderQuickList("");
+  $("quick-input").focus();
+  report("UI quick open shown");
+}
+function renderQuickList(q) {
+  quickItems = filterNotes(notes, q);
+  var box = $("quick-list");
+  while (box.firstChild) { box.removeChild(box.firstChild); }
+  if (quickItems.length === 0) {
+    var e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "（没有匹配的笔记）";
+    box.appendChild(e);
+    return;
+  }
+  for (var i = 0; i < quickItems.length; i++) {
+    (function (name, idx) {
+      var el = document.createElement("div");
+      el.className = "quick-item" + (idx === quickSel ? " sel" : "");
+      el.textContent = name;
+      el.onclick = function () { openQuickPick(idx); };
+      box.appendChild(el);
+    })(quickItems[i], i);
+  }
+}
+function openQuickPick(idx) {
+  var name = quickItems[idx];
+  if (!name) { return; }
+  showQuickOpen(false);
+  openNote(name);
+}
+function quickKey(e) {
+  if (e.key === "Escape") { e.preventDefault(); showQuickOpen(false); return; }
+  if (e.key === "Enter") { e.preventDefault(); openQuickPick(quickSel); return; }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (quickItems.length === 0) { return; }
+    quickSel = (quickSel + (e.key === "ArrowDown" ? 1 : quickItems.length - 1)) % quickItems.length;
+    renderQuickList($("quick-input").value);
+  }
+}
+
+// ── 视图三态（编辑 / 预览 / 分屏）──
 // 页面结构固定为两栏，「哪一栏可见」交给 #work 上的 mode-* 类（布局是 CSS 的事，JS 只切类）。
 // 选择存 store：重启恢复上次；store 往返失败不影响当次（只少一条记忆）。
 var VIEW_KEY = "ui.viewmode";
@@ -577,6 +983,9 @@ function applyViewMode(mode, remember) {
     var b = $(viewNames[k]);
     if (b) { b.className = "segbtn" + (k === mode ? " active" : ""); }
   }
+  // 工具条右侧的说明跟着三态走（原先是两栏各自的 pane-tip；现在合并成一条，省一行高度）
+  var tip = $("work-tip");
+  if (tip) { tip.textContent = { edit: "编辑（Markdown）", preview: "预览（实时）", split: "分屏：编辑 + 预览" }[mode]; }
   // 编辑器被隐藏期间 CodeMirror 量不到尺寸，回到可见态必须重新量一次，否则光标/滚动错位
   if (cm && mode !== "preview") { try { cm.refresh(); } catch (e) {} }
   if (remember !== false) {
@@ -611,12 +1020,23 @@ function applyAppTheme(name, remember) {
   document.documentElement.className = "apptheme-" + name;
   syncDarkUi();
   var b = $("btn-theme");
-  if (b) { b.textContent = themeNames[name]; }
+  if (b) {
+    // 图标按钮只切状态类：半亮 / 空 / 实心由 CSS 画，文字进 title 与 aria-label
+    b.className = "theme-" + name;
+    b.title = "界面主题：" + themeNames[name] + "（点击切换）";
+    b.setAttribute("aria-label", "界面主题：" + themeNames[name]);
+  }
   if (remember !== false) {
     invoke("store:set", { key: THEME_KEY, value: name }).catch(function (e) {
       report("SELFCHECK FAIL theme persist: " + e);
     });
   }
+  // 弹层里就地标勾（菜单开着时不必关掉重开），并把原生「视图→界面主题」同步过去
+  var themeItemsAll = $("theme-menu") ? $("theme-menu").getElementsByTagName("button") : [];
+  for (var tii = 0; tii < themeItemsAll.length; tii++) {
+    themeItemsAll[tii].className = (themeItemsAll[tii].getAttribute("data-theme") === name) ? "on" : "";
+  }
+  invoke("theme:apply", { name: name }).catch(function () {});
   report("UI apptheme " + name);
 }
 
@@ -639,6 +1059,48 @@ if (window.matchMedia) {
 
 function cycleAppTheme() {
   applyAppTheme(themeOrder[(themeOrder.indexOf(curTheme) + 1) % themeOrder.length]);
+}
+
+/** 主题弹层的开关（三项自绘菜单；原生菜单那条入口由 theme:apply 保持同步） */
+function themePopOpen(on) {
+  var m = $("theme-menu");
+  if (!m) { return; }
+  if (on) { m.removeAttribute("hidden"); } else { m.setAttribute("hidden", "hidden"); }
+}
+
+// ── 原生菜单（文件 / 视图 / 帮助）──
+// 框架把点击投成 `menu:click`（信封即载荷：{kind,id,enabled,checked}），这里只做分发：
+// 每个 id 都指向顶栏按钮/快捷键用的同一个动作函数，三条入口行为天然一致。
+// 勾选态不归页面管：单选组的整组回写与「被点项的 checked」由仓颉侧 MenuRouter + 框架模型同步。
+var appVersion = "";
+
+function showAbout(on) {
+  var card = $("about-card");
+  if (!card) { return; }
+  card.classList.toggle("on", on !== false);
+  if (on !== false) {
+    var v = $("about-ver");
+    if (v) {
+      v.textContent = "仓颉 + cj-tauri" + (appVersion ? " " + appVersion : "") + " ｜ 工作区 notes/";
+    }
+    report("UI about shown");
+  }
+}
+
+function onMenuClick(ev) {
+  var id = ev && ev.id ? String(ev.id) : "";
+  report("UI menu:click " + id);
+  if (id === "file.new") { newNote(); }
+  else if (id === "file.open") { openViaDialog(); }
+  else if (id === "file.quickOpen") { showQuickOpen(true); }
+  else if (id === "file.save") { saveCurrent(); }
+  else if (id === "file.refresh") { refreshList(); }
+  else if (id === "view.mode.edit") { applyViewMode("edit"); }
+  else if (id === "view.mode.split") { applyViewMode("split"); }
+  else if (id === "view.mode.preview") { applyViewMode("preview"); }
+  else if (id.indexOf("apptheme.") === 0) { applyAppTheme(id.slice("apptheme.".length)); }
+  else if (id === "help.about") { showAbout(true); }
+  // file.quit 不到这里：退出在仓颉侧应用层直接收口
 }
 
 // ── 自检（CJNOTE_SELFCHECK=1 时跑一轮，全部经 report 回投 stderr） ──
@@ -670,6 +1132,73 @@ function selfCheck(env) {
   ok(document.documentElement.className === "apptheme-system", "apptheme defaults to system");
   ok(bgLight !== bgDark, "light and dark palettes differ");
   applyAppTheme(themeBefore, false);
+  // 「关于」浮层（帮助菜单入口）：开要真可见、关要真收回，验完复原。
+  // 判据必须带尺寸——只断言 display 的话，浮层被压成 0×0 也算过（实测踩过：inset 不生效）
+  showAbout(true);
+  var ac = $("about-card");
+  var acBox = ac.getBoundingClientRect();
+  ok(getComputedStyle(ac).display === "flex" && acBox.width > 100 && acBox.height > 100,
+    "about overlay opens covering viewport");
+  showAbout(false);
+  ok(getComputedStyle($("about-card")).display === "none", "about overlay closes");
+  // Base URL 归一化：三种写法必须落到同一个端点（用户不该背「必须写全 chat/completions」）
+  ok(normalizeBaseUrl("https://api.deepseek.com") === "https://api.deepseek.com/v1/chat/completions",
+    "base url bare host gets /v1/chat/completions");
+  ok(normalizeBaseUrl("https://api.deepseek.com/v1/") === "https://api.deepseek.com/v1/chat/completions",
+    "base url version tail gets chat/completions");
+  ok(normalizeBaseUrl("https://api.deepseek.com/v1/chat/completions") === "https://api.deepseek.com/v1/chat/completions",
+    "base url full endpoint kept as is");
+  ok(normalizeBaseUrl("  https://api.openai.com/v1/chat/completions/  ") === "https://api.openai.com/v1/chat/completions",
+    "base url trims spaces and trailing slash");
+  // 侧栏大纲：围栏里的 # 不算标题、一条标题一行、点击要真跳到那一行（验完复原正文与页签）
+  var mdBefore = getDoc();
+  var sideBefore = sideTab;
+  setDoc("# 一级\n\n```\n# 不是标题\n```\n\n## 二级\n### 三级\n");
+  var ol = outlineItems(getDoc());
+  ok(ol.length === 3 && ol[0].level === 1 && ol[2].level === 3 && ol[2].line === 7,
+    "outline skips fenced headings");
+  showSide("outline");
+  ok($("outline").children.length === 3, "outline renders one row per heading");
+  $("outline").children[2].onclick();
+  ok(cm ? cm.getCursor().line === 7 : true, "outline click jumps to heading line");
+  // 快速打开：过滤纯函数 + 浮层真能开合并盖住视口（本机 WebKitGTK 上 inset 失效过，量尺寸才算数）
+  ok(filterNotes(["欢迎.md", "周报.md"], "周").join("|") === "周报.md", "quick open filters by name");
+  ok(filterNotes(["a.md", "b.md"], "").length === 2, "quick open lists all on empty query");
+  showQuickOpen(true);
+  var qo = $("quick-open").getBoundingClientRect();
+  ok(getComputedStyle($("quick-open")).display === "flex" && qo.width > 100 && qo.height > 100,
+    "quick open overlay covers viewport");
+  showQuickOpen(false);
+  ok(getComputedStyle($("quick-open")).display === "none", "quick open overlay closes");
+  showSide(sideBefore);
+  setDoc(mdBefore);
+  // 顶栏文档状态：字数按非空白字符算；圆点跟 dirty（强调色=未保存，saved=已保存）
+  ok(docWordCount("a b\n中\t文") === 4, "word count ignores whitespace");
+  var dirtyBeforeMeta = dirty;
+  dirty = false; updateDocMeta();
+  ok($("doc-state").className.indexOf("saved") >= 0 &&
+    $("doc-state").getElementsByTagName("b")[0].textContent === "已保存", "doc status shows saved when clean");
+  dirty = true; updateDocMeta();
+  ok($("doc-state").className.indexOf("saved") < 0 &&
+    $("doc-state").getElementsByTagName("b")[0].textContent === "未保存", "doc status shows dirty after edit");
+  ok($("doc-stat").textContent === docWordCount(getDoc()) + " 字", "word count shown in topbar");
+  dirty = dirtyBeforeMeta; updateDocMeta();
+  // 主题弹层：点按钮弹三项、选一项即生效并收起（点外部/Esc 关闭走同一开关）
+  var themeBtnEl = $("btn-theme");
+  themeBtnEl.onclick({ stopPropagation: function () {}, target: themeBtnEl });
+  ok(!$("theme-menu").hasAttribute("hidden") &&
+    $("theme-menu").getElementsByTagName("button").length === 3, "theme popover opens with three options");
+  var themeBeforePick = curTheme;
+  $("theme-menu").getElementsByTagName("button")[1].onclick({});
+  ok(curTheme === "light" && $("theme-menu").hasAttribute("hidden"),
+    "theme option applies and closes menu");
+  ok($("theme-menu").getElementsByTagName("button")[1].className === "on", "theme popover marks current option");
+  applyAppTheme(themeBeforePick);
+  // 原生标题行：能力探测是异步的，这里只断言「页面行为与探测结论一致」——
+  // 支持时页面顶栏整行让出（display:none → offsetParent 为空），不支持时保持可见
+  ok(document.body.classList.contains("native-titlebar") === titlebarSupported &&
+    (($("topbar").offsetParent !== null) === !titlebarSupported),
+    "page topbar follows native titlebar capability");
   report("UI system-light=" + (window.matchMedia("(prefers-color-scheme: light)").matches ? "1" : "0"));
   ok(!!window.marked, "marked ready");
   refreshList().then(function (list) {
@@ -686,7 +1215,10 @@ function selfCheck(env) {
             ok(text.indexOf("<!-- probe -->") >= 0, "write-read roundtrip");
             setDoc(prev); saveCurrent();
             // AI 流式探针（CJNOTE_PROBE_AI 注入配置时跑）：发一句、收流、断言非空
-            if (aiCfg.base && $("ai-state").textContent !== "未配置") {
+            // 只在端点是本地 mock 时跑：真实服务商地址下这几条必红（无 mock 就等不到 REF-OK），
+            // 那是「自检假红」，会把交付门禁弄失真（实测：用户填了真实 base 后自检掉到 passed=17 failed=2）
+            var mockLike = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(aiCfg.base || "");
+            if (aiCfg.base && mockLike && $("ai-state").textContent !== "未配置") {
               $("ai-input").value = "ping";
               aiSend();
               var tries = 0;
@@ -864,6 +1396,7 @@ function l2Apply(text) {
     renderPreview(ta.value);
   }
   dirty = true;
+  updateDocMeta();
 }
 function l2Run(act) {
   if (l2.streaming || !l2.selText) { return; }
@@ -895,7 +1428,7 @@ function l2Run(act) {
     stream: true
   });
   invoke("http:postStream", {
-    url: aiCfg.base,
+    url: normalizeBaseUrl(aiCfg.base),
     body: payload,
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + aiCfg.key }
   }).then(function (stat) {
@@ -966,21 +1499,77 @@ function initL2() {
 waitForBridge(function () {
   bridge = window.__CJ_TAURI__;
   invoke("notes:env", {}).then(function (env) {
+    appVersion = env && env.version ? String(env.version) : "";
     initEditor();
-    document.getElementById("btn-save").onclick = function () { saveCurrent(); };
-    document.getElementById("btn-new").onclick = function () { newNote(); };
+    updateDocMeta();
     document.getElementById("btn-refresh").onclick = function () { refreshList(); };
+    document.getElementById("tab-notes").onclick = function () { showSide("notes"); };
+    document.getElementById("tab-outline").onclick = function () { showSide("outline"); };
+    // 原生菜单点击 → 框架自动投 `menu:click`（信封即载荷，见 src/shell_event.cj）：
+    // 菜单、顶栏按钮、快捷键收敛到同一批动作函数
+    if (bridge.listen) { bridge.listen("menu:click", onMenuClick); }
+    // 「关于」浮层：按钮与 Esc 都能关（Esc 只在浮层开着时接管，不干扰编辑器）
+    document.getElementById("about-close").onclick = function () { showAbout(false); };
+    document.getElementById("about-card").addEventListener("click", function (e) {
+      if (e.target === this) { showAbout(false); }
+    });
+    // 快速打开：输入即过滤、点条目即打开、点遮罩关闭
+    document.getElementById("quick-input").addEventListener("input", function () {
+      quickSel = 0;
+      renderQuickList(this.value);
+    });
+    document.getElementById("quick-input").addEventListener("keydown", quickKey);
+    document.getElementById("quick-open").addEventListener("click", function (e) {
+      if (e.target === this) { showQuickOpen(false); }
+    });
     // 视图三态：页内分段按钮与 Ctrl+1/2/3 走同一个 applyViewMode，行为天然一致
     document.getElementById("mode-edit").onclick = function () { applyViewMode("edit"); };
     document.getElementById("mode-split").onclick = function () { applyViewMode("split"); };
     document.getElementById("mode-preview").onclick = function () { applyViewMode("preview"); };
-    document.getElementById("btn-theme").onclick = cycleAppTheme;
+    // 主题按钮：点开三项弹层（不再三下循环），选完写回 store 并同步原生菜单勾选
+    var themeBtn = document.getElementById("btn-theme");
+    themeBtn.onclick = function (e) {
+      e.stopPropagation();
+      themePopOpen($("theme-menu").hasAttribute("hidden"));
+    };
+    var themeOpts = $("theme-menu").getElementsByTagName("button");
+    for (var ti = 0; ti < themeOpts.length; ti++) {
+      themeOpts[ti].onclick = function () {
+        applyAppTheme(this.getAttribute("data-theme"));
+        themePopOpen(false);
+      };
+    }
+    // 点弹层以外的地方收起（按钮自身的点击已 stopPropagation，不会自己关掉）
+    document.addEventListener("click", function (e) {
+      var wrap = document.querySelector(".theme-wrap");
+      if (wrap && !wrap.contains(e.target)) { themePopOpen(false); }
+    });
     loadUiPrefs();
     document.addEventListener("keydown", function (e) {
+      // 主题弹层开着时 Esc 先收它（最轻的一层，优先于两个模态浮层）
+      if (e.key === "Escape" && !$("theme-menu").hasAttribute("hidden")) {
+        e.preventDefault();
+        themePopOpen(false);
+        return;
+      }
+      // 「快速打开」浮层开着时 Esc 先关它（比关于浮层更靠前：它是模态拾取器）
+      if (e.key === "Escape" && $("quick-open").classList.contains("on")) {
+        e.preventDefault();
+        showQuickOpen(false);
+        return;
+      }
+      // 「关于」浮层开着时 Esc 先关它（否则会漏给编辑器）
+      if (e.key === "Escape" && $("about-card").classList.contains("on")) {
+        e.preventDefault();
+        showAbout(false);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "o" || e.key === "O")) { e.preventDefault(); openViaDialog(); }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "p" || e.key === "P")) { e.preventDefault(); showQuickOpen(true); }
       if ((e.ctrlKey || e.metaKey) && e.key === "s" && cm) { e.preventDefault(); saveCurrent(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === "1" || e.key === "2" || e.key === "3")) {
         e.preventDefault();
-        applyViewMode({ "1": "edit", "2": "split", "3": "preview" }[e.key]);
+        applyViewMode({ "1": "edit", "2": "preview", "3": "split" }[e.key]);
       }
     });
     // AI 侧栏接线：发送按钮 + Enter 发送（Shift+Enter 换行）

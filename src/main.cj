@@ -12,8 +12,10 @@ import cjTauri.plugins.store.*
 import cjTauri.plugins.http.*
 import cjTauri.plugins.log.*
 import cjTauri.plugins.clipboard.*
+import cjTauri.plugins.dialog.*
 import std.env.*
 import std.fs.*
+import std.collection.*
 import stdx.encoding.json.*
 
 /** 前端自检/日志回投：页面每条断言打一行 stderr，取证 grep 这一个前缀 */
@@ -33,6 +35,64 @@ public class ReportCommand <: CommandHandler {
     }
 }
 
+/** theme:apply：页面里自绘的主题菜单选完之后，把原生「视图→界面主题」三项勾选一次写齐。
+ *  页面按钮与原生菜单是两条入口，只改页面会露馅成「页面已是深色、菜单还勾着跟随系统」。 */
+public class ThemeSyncCommand <: CommandHandler {
+    private let app: TauriApp
+
+    public init(app: TauriApp) {
+        this.app = app
+    }
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        var name = "system"
+        if (let Some(v) <- args.get("name")) {
+            match (v.kind()) {
+                case JsonKind.JsString => name = v.asString().getValue()
+                case _ => ()
+            }
+        }
+        let label = ipc.window
+        let _ = this.app.setMenuItemStateTo(label, "apptheme.system", true, name == "system")
+        let _ = this.app.setMenuItemStateTo(label, "apptheme.light", true, name == "light")
+        let _ = this.app.setMenuItemStateTo(label, "apptheme.dark", true, name == "dark")
+        return JsonBool(true)
+    }
+}
+
+/** titlebar:sync：把「文档名 · 保存状态 · 字数」推到原生标题行（与菜单栏同一行右侧）。
+ *  返回 `supported` 让页面知道这次是真的写进去了、还是本平台没有这块（Windows = false）——
+ *  页面据它决定要不要保留自己那条顶栏：没这块的平台把顶栏删了就彻底没标题了。 */
+public class TitlebarSyncCommand <: CommandHandler {
+    private let app: TauriApp
+
+    public init(app: TauriApp) {
+        this.app = app
+    }
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        var text = ""
+        if (let Some(v) <- args.get("text")) {
+            match (v.kind()) {
+                case JsonKind.JsString => text = v.asString().getValue()
+                case _ => ()
+            }
+        }
+        var supported = false
+        if (let Some(host) <- this.app.hostOf(ipc.window)) {
+            if ((host.hostCapabilities() & CJ_CAP_SUBTITLE) != 0) {
+                supported = true
+                host.setTitlebarSubtitle(text)
+            }
+        }
+        let out = JsonObject()
+        out.put("supported", JsonBool(supported))
+        return out
+    }
+}
+
 /** notes:env：宿主侧启动参数交给页面（页面没有进程环境） */
 public class NotesEnvCommand <: CommandHandler {
     private let selfCheck: Bool
@@ -48,8 +108,76 @@ public class NotesEnvCommand <: CommandHandler {
         let out = JsonObject()
         out.put("selfcheck", JsonBool(this.selfCheck))
         out.put("workspace", JsonString("notes"))
+        // 框架版本随环境一起给页面：「关于」浮层要显示它（页面没有别的地方能拿到）
+        out.put("version", JsonString(CJ_TAURI_VERSION))
         return out
     }
+}
+
+/** note:readExternal：把用户从原生对话框选中的外部 .md 读成页面可编辑的文本。
+ *  路径虽然来自对话框，但对页面仍是**可控字符串**——后缀白名单 + 4MB 上限先行挡一道，
+ *  别让这条命令退化成任意文件读取（页面一旦被注入，就能顺着它读 ~/.ssh 之类）。
+ *  本工程没接 fs 插件：一条只读文本的命令不值得为它引整份 scope 机制（判定收在这里一处）。 */
+public class ReadExternalCommand <: CommandHandler {
+    public init() {}
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
+        match (args.get("path")) {
+            case Some(v) =>
+                match (v.kind()) {
+                    case JsonKind.JsString => return this.readExternal(v.asString().getValue())
+                    case _ => throw CommandException("note:readExternal: 参数 path 必须是字符串")
+                }
+            case None => throw CommandException("note:readExternal: 缺参数 \"path\"")
+        }
+    }
+
+    func readExternal(path: String): JsonValue {
+        let lower = path.toAsciiLower()
+        var suffixOk = false
+        for (s in [".md", ".markdown", ".txt"]) {
+            if (lower.endsWith(s)) {
+                suffixOk = true
+            }
+        }
+        if (!suffixOk) {
+            throw CommandException("note:readExternal: 只接受 .md / .markdown / .txt 文件")
+        }
+        if (!exists(path)) {
+            throw CommandException("note:readExternal: 文件不存在")
+        }
+        let bytes = File.readFrom(path)
+        if (bytes.size > 4 * 1024 * 1024) {
+            throw CommandException("note:readExternal: 文件超过 4MB，拒绝读入")
+        }
+        let text: String = try {
+            String.fromUtf8(bytes)
+        } catch (e: Exception) {
+            throw CommandException("note:readExternal: 不是 UTF-8 文本（${e}）")
+        }
+        let out = JsonObject()
+        out.put("path", JsonString(path))
+        out.put("name", JsonString(baseNameOf(path)))
+        out.put("body", JsonString(text))
+        eprintln("[cjnote] readExternal ${path} (${bytes.size} bytes)")
+        return out
+    }
+}
+
+/** 取路径最后一段（两平台分隔符都认）：外部草稿的默认笔记名就是它 */
+func baseNameOf(path: String): String {
+    var s = path
+    let bySlash = s.split("/")
+    if (bySlash.size > 0) {
+        s = bySlash[bySlash.size - 1]
+    }
+    let byBackslash = s.split("\\")
+    if (byBackslash.size > 0) {
+        s = byBackslash[byBackslash.size - 1]
+    }
+    return s
 }
 
 func envOr(name: String, fallback: String): String {
@@ -82,6 +210,90 @@ func inlineVendor(html: String): String {
     return out
 }
 
+/** 应用菜单：文件 / 视图 / 帮助（与 markdown-notes 同一套结构与 id 约定）。
+ *  点击由框架自动投前端事件 `menu:click`（能力清单 events 里已声明），菜单与顶栏按钮
+ *  收敛到同一批页面动作函数，两条入口行为天然一致。 */
+func buildAppMenu(): MenuModel {
+    var file = ArrayList<MenuItem>()
+    file.add(MenuItem.normalWithAccel("file.open", "打开…", "Ctrl+O"))
+    file.add(MenuItem.normalWithAccel("file.quickOpen", "快速打开…", "Ctrl+P"))
+    file.add(MenuItem.separator())
+    file.add(MenuItem.normalWithAccel("file.new", "新建笔记", "Ctrl+N"))
+    file.add(MenuItem.normalWithAccel("file.save", "保存", "Ctrl+S"))
+    file.add(MenuItem.normal("file.refresh", "刷新列表"))
+    file.add(MenuItem.separator())
+    // 退出在应用层收口（不经过页面：页面卡住时也要能退）
+    file.add(MenuItem.normalWithAccel("file.quit", "退出", "Ctrl+Q"))
+    // 视图三态是单选组（勾选态由 MenuRouter 整组回写，见其注释）
+    var view = ArrayList<MenuItem>()
+    view.add(MenuItem.checkbox("view.mode.edit", "编辑", false))
+    view.add(MenuItem.checkbox("view.mode.preview", "预览", false))
+    view.add(MenuItem.checkbox("view.mode.split", "分屏", true))
+    view.add(MenuItem.separator())
+    // 界面主题同组单选：取值与顶栏按钮的 system → light → dark 一致
+    view.add(MenuItem.checkbox("apptheme.system", "界面主题：跟随系统", true))
+    view.add(MenuItem.checkbox("apptheme.light", "界面主题：浅色", false))
+    view.add(MenuItem.checkbox("apptheme.dark", "界面主题：深色", false))
+    var help = ArrayList<MenuItem>()
+    help.add(MenuItem.normal("help.about", "关于 cjnote…"))
+    var items = ArrayList<MenuItem>()
+    items.add(MenuItem.submenu("文件", file))
+    items.add(MenuItem.submenu("视图", view))
+    items.add(MenuItem.submenu("帮助", help))
+    return MenuModel(items)
+}
+
+/** 报文里是否精确带某 id（`"id":"<id>"` 带闭合引号）。indexOf 返回 Option，
+ *  走 match 拆 None/Some——本机 cjc 对 Option 直接比对推不出泛型（AGENTS §4） */
+func hasId(json: String, id: String): Bool {
+    match (json.indexOf("\"id\":\"" + id + "\"")) {
+        case Some(_) => true
+        case None => false
+    }
+}
+
+/** id 是否以某前缀开头：按 `"id":"<前缀>` 找，**不带闭合引号**。
+ *  带点前缀（如 `view.mode.`）加闭合引号永远不中，单选组回写会整组失效 */
+func hasIdPrefix(json: String, prefix: String): Bool {
+    match (json.indexOf("\"id\":\"" + prefix)) {
+        case Some(_) => true
+        case None => false
+    }
+}
+
+/** 菜单事件路由：框架已把**被点那一项**的 checked/enabled 回写到应用层模型
+ *  （`TauriApp.syncMenuStateFromShellObj`），这里只管单选组的另一维：命中组内任一项时
+ *  把整组勾选态一次写齐，否则另几项的勾会留在原地（单选组露馅）。 */
+class MenuRouter {
+    private let app: TauriApp
+
+    init(app: TauriApp) {
+        this.app = app
+    }
+
+    public func onShell(json: String, label: String): Unit {
+        if (let Some(_) <- json.indexOf("\"menu\"")) {
+            eprintln("[cjnote] menu click ${json}")
+        }
+        // 退出：应用层直接收口，不回投页面
+        if (hasId(json, "file.quit")) {
+            eprintln("[cjnote] menu quit")
+            this.app.quit()
+            return
+        }
+        if (hasIdPrefix(json, "view.mode.")) {
+            this.app.setMenuItemStateTo(label, "view.mode.edit", true, hasId(json, "view.mode.edit"))
+            this.app.setMenuItemStateTo(label, "view.mode.split", true, hasId(json, "view.mode.split"))
+            this.app.setMenuItemStateTo(label, "view.mode.preview", true, hasId(json, "view.mode.preview"))
+        }
+        if (hasIdPrefix(json, "apptheme.")) {
+            this.app.setMenuItemStateTo(label, "apptheme.system", true, hasId(json, "apptheme.system"))
+            this.app.setMenuItemStateTo(label, "apptheme.light", true, hasId(json, "apptheme.light"))
+            this.app.setMenuItemStateTo(label, "apptheme.dark", true, hasId(json, "apptheme.dark"))
+        }
+    }
+}
+
 main(): Int64 {
     var selfCheck = false
     if (let Some(v) <- getVariable("CJNOTE_SELFCHECK")) {
@@ -107,6 +319,7 @@ main(): Int64 {
         .plugin(HttpPlugin())
         .plugin(LogPlugin())
         .plugin(ClipboardPlugin())
+        .plugin(DialogPlugin())
         .register("report", ReportCommand())
         .register("notes:env", NotesEnvCommand(selfCheck))
         .register("note:list", noteCmds)
@@ -115,6 +328,12 @@ main(): Int64 {
         .register("note:save", noteCmds)
         .register("note:create", noteCmds)
         .register("note:delete", noteCmds)
+        .register("note:readExternal", ReadExternalCommand())
+
+    // 页面自绘主题菜单 → 原生菜单勾选（两条入口必须一致，见 ThemeSyncCommand 注释）
+    let _ = app.register("theme:apply", ThemeSyncCommand(app))
+    // 页面 → 原生标题行（宿主支持时页面顶栏整行让出来，见 TitlebarSyncCommand 注释）
+    let _ = app.register("titlebar:sync", TitlebarSyncCommand(app))
 
     // 工作区在装配期建好 + 播种欢迎笔记（幂等：目录/文件已存在不重建）。
     // 建目录是应用装配的事，不进 fs 插件命令面（markdown-notes 同款）。
@@ -149,6 +368,18 @@ main(): Int64 {
                 case None => eprintln("[cjnote] AI 探针：主窗未登记，配置没注入")
             }
         }
+    }
+
+    // 原生菜单 + 事件回投：必须在 run() 之前装配（预置类宿主能力，AGENTS §2）；
+    // 点击由框架自动投前端 `menu:click`（能力清单 events 已声明），退出这类动作在应用层直接收口
+    let router = MenuRouter(app)
+    app.onShellEvent({ json, label => router.onShell(json, label) })
+    // 默认窗口 label 固定 "main"（与 capabilities 的 windows 一致）
+    match (app.hostOf("main")) {
+        case Some(_) =>
+            app.setMenuTo("main", buildAppMenu())
+            eprintln("[cjnote] menu attached")
+        case None => eprintln("[cjnote] 默认窗口未登记，菜单未装")
     }
 
     app.run(html)
