@@ -633,7 +633,7 @@ function initEditor() {
   var wrap = $("editor-wrap");
   if (window.CodeMirror) {
     cm = window.CodeMirror(wrap, {
-      value: "", lineNumbers: true, lineWrapping: true,
+      value: "", lineNumbers: false, lineWrapping: true,
       mode: "text/x-markdown", theme: "default",
       extraKeys: {
         "Ctrl-S": function () { saveCurrent(); },
@@ -857,6 +857,7 @@ function cjhBoot(force) {
   return invoke("cjh:status").then(function (st) {
     st = st || {};
     cjh.state = st.state || "missing";
+    report("CJH status=" + cjh.state + " ws=" + (st.wsUrl || "-"));
     if (cjh.state === "running") {
       cjh.api = st.apiUrl || ""; cjh.ws = st.wsUrl || "";
       cjh.checking = false;
@@ -891,6 +892,7 @@ function cjhConnect() {
   return invoke("ws:connect", { url: cjh.ws }).then(function () {
     cjh.up = true;
     aiSetState("就绪", "ok");
+    report("CJH ws connected " + cjh.ws);
     updateAiCfgTip();
     // 续聊：会话内容在 cjh 侧，页面只留着 id
     if (cjh.session) { cjhWsSend({ type: "resume_session", session_id: cjh.session }).catch(function () {}); }
@@ -1256,13 +1258,27 @@ function appendApprovalCard(m) {
   return el;
 }
 // ── 帧分发：delta / tool_start / tool_result / done / error / cancelled / approval_request ──
+// 流式渲染节流：delta 帧可能每秒几十条，逐帧 marked.parse + hljs 全量重排会把主线程
+// 打满（实测：AI 回复期间点列表/菜单完全无响应）。这里只累积、按 ~120ms 合并重绘；
+// 收尾（cjhFinishTurn → aiSetBody）无条件全量渲染，末态不缺字。
+var aiStreamPaint = { pending: false, last: 0 };
+function aiStreamSchedule() {
+  if (aiStreamPaint.pending) { return; }
+  var wait = Math.max(0, 120 - (Date.now() - aiStreamPaint.last));
+  aiStreamPaint.pending = true;
+  setTimeout(function () {
+    aiStreamPaint.pending = false;
+    aiStreamPaint.last = Date.now();
+    if (aiTurn && aiTurn.kind === "chat" && aiTurn.body) { aiSetBody(aiTurn.body, aiTurn.acc); }
+  }, wait);
+}
 function handleCjhFrame(m) {
   var type = m.type || "";
   if (type === "delta") {
     if (!aiTurn) { aiTurn = { kind: "chat", body: aiMsgEl("assistant", "", true), acc: "", tools: [] }; }
     aiTurn.acc += m.text || "";
     if (aiTurn.kind === "l2") { l2Stream(aiTurn.acc); }
-    else if (aiTurn.body) { aiSetBody(aiTurn.body, aiTurn.acc); }
+    else if (aiTurn.body) { aiStreamSchedule(); }
   } else if (type === "tool_start") {
     if (!aiTurn) { aiTurn = { kind: "chat", body: aiMsgEl("assistant", "", true), acc: "", tools: [] }; }
     aiTurn.tools.push({ name: m.name || "tool", status: "running" });
@@ -1597,7 +1613,7 @@ function openNote(name) {
     setDoc(text);
     renderList();
     rememberLast(current);
-    report("SELFCHECK PASS open " + current + " bytes=" + text.length);
+    report("UI open " + current + " bytes=" + text.length);
     return r;
   }).catch(function (e) { report("SELFCHECK FAIL read " + name + ": " + e); });
 }
@@ -1610,7 +1626,7 @@ function saveCurrent() {
     if (r && r.name) { current = r.name; }
     $("doc-title").textContent = current;
     updateDocMeta();
-    report("SELFCHECK PASS save " + current);
+    report("UI save " + current);
   }).catch(function (e) { report("SELFCHECK FAIL save: " + e); });
 }
 function newNote() {
@@ -1777,6 +1793,10 @@ function loadUiPrefs() {
       renderList();
     }
   }).catch(function () {});
+  // 行号偏好恢复（默认关）：remember=false 不回写，但要同步原生菜单勾选
+  invoke("store:get", { key: "ui.linenos" }).then(function (v) {
+    applyLineNumbers(v === "1", false);
+  }).catch(function () {});
 }
 
 // ── 界面主题（默认跟随系统，可手动覆盖）──
@@ -1811,6 +1831,18 @@ function applyAppTheme(name, remember) {
   }
   invoke("theme:apply", { name: name }).catch(function () {});
   report("UI apptheme " + name);
+}
+
+// ── 显示行号：独立开关（视图菜单勾选项），默认关，偏好落 store（ui.linenos）──
+// CodeMirror 的行号开销在大文档下不小，默认不显示；勾选态经 linenos:sync 回写原生菜单，
+// 否则两条入口只改一条（页面显示了、菜单还空着），用户下次从菜单里找不到状态
+function applyLineNumbers(on, remember) {
+  if (cm) { cm.setOption("lineNumbers", !!on); }
+  if (remember) {
+    invoke("store:set", { key: "ui.linenos", value: on ? "1" : "0" }).catch(function () {});
+  }
+  invoke("linenos:sync", { on: !!on }).catch(function () {});
+  report("UI linenos " + (on ? "on" : "off"));
 }
 
 /** 「最终是不是深色」单独算：system 要问系统，light/dark 直接定。
@@ -1874,6 +1906,8 @@ function onMenuClick(ev) {
   else if (id === "view.mode.split") { applyViewMode("split"); }
   else if (id === "view.mode.preview") { applyViewMode("preview"); }
   else if (id.indexOf("apptheme.") === 0) { applyAppTheme(id.slice("apptheme.".length)); }
+  // 「显示行号」是独立开关（非单选组）：信封里的 checked 就是新状态，直接应用并落偏好
+  else if (id === "view.linenos") { applyLineNumbers(!!(ev && ev.checked), true); }
   else if (id === "help.about") { showAbout(true); }
   // file.quit 不到这里：退出在仓颉侧应用层直接收口
 }

@@ -1,6 +1,12 @@
 // cjh web 托管：只管**生命周期**（发现 → 健康检查 → 按需 spawn → 退出收尾），
 // 数据面零参与——聊天走 ws 插件（ws://127.0.0.1:8765/ws），其余 REST 走 http 插件。
 //
+// 真实屏「迟早整页冻结」曾误判为 fork 所致（做过零 fork + run.sh 守护的改造）；后经
+// gdb 全线程栈 + /proc 信号掩码取证定案：根因是 WebKit 的 JSC 覆盖 SIGUSR1 处理器
+// （仓颉运行时线程挂起/恢复所用的信号），已在 cj-tauri 框架层修复（issue #4，桥里
+// 保存/恢复信号处理器）。进程模型回归 **SubProcess 直管**：两平台同一实现，cjh 随包
+// 自动拉起、退出只收自己 spawn 的那一只——单二进制 + vendor 目录即可分发，无需启动脚本。
+//
 // 与 ai-chat 示例的**有意差异**：那边让用户选 cjh 可执行文件路径（引导卡里点「选择…」），
 // 这里把 cjh 按平台打进 vendor/cjh/bin/<平台>/ 随包分发——笔记应用的用户不该知道
 // 「cjh 是什么、装在哪、怎么配环境变量」。发现顺序：
@@ -23,10 +29,9 @@ import stdx.net.http.*
 
 public let CJH_DEFAULT_PORT: Int64 = 8765
 
-/** 全局持有 spawn 出来的子进程：只有 main() 装配期写一次、quit 收尾读一次，
- *  不做并发保护（AGENTS §2：不给「不会发生的并发」上锁） */
+/** 子进程句柄与归属记账（不做并发保护——AGENTS §2：不给「不会发生的并发」上锁） */
 public var gCjhProc: Option<SubProcess> = None
-/** true = cjh 是本应用拉起的（退出时要收尾）；false = 本来就在跑（别动人家的） */
+/** true = cjh 是本应用 spawn 的（退出时要收尾）；false = 用户自己的实例（别动人家的） */
 public var gCjhOwned: Bool = false
 
 func cjhPort(): Int64 {
@@ -140,39 +145,18 @@ public func cjhStatusJson(): JsonValue {
 }
 
 /**
- * 确保 cjh web 就绪（启动路径）：端口上已有活的就复用（gCjhOwned=false，退出不收）；
- * 没有就用随包二进制拉起。失败不致命——页面拿「未连接」，AI 面板如实显示不可用。
- */
-public func ensureCjhWeb(): Bool {
-    let port = cjhPort()
-    if (cjhHealthy(port)) {
-        eprintln("[cjnote] cjh web 已在运行（port=${port}），直接复用")
-        gCjhOwned = false
-        return true
-    }
-    match (findCjhBin()) {
-        case Some(bin) => return spawnCjhWeb(bin)
-        case None =>
-            eprintln("[cjnote] 未找到随包 cjh（vendor/cjh/bin/）——AI 面板显示未连接")
-            return false
-    }
-}
-
-/**
  * 按指定路径拉起 cjh web 并等健康检查（100ms 一步，最多 10 秒——cjh web 启动要装 Agent 栈，
- * 秒级是正常量级）。阻塞只落在命令 worker / 装配线程上，不冻窗口。
+ * 秒级是正常量级）。阻塞只落在命令 worker 线程上，不冻窗口。
  *
- * 拉起前先把上一只**我们拉起的**收掉：换路径重试时旧进程若还占着端口，新的那只绑定就会失败，
- * 而表象只是「10 秒后仍不通」。用户自己的实例（复用的那条路）永远不动。
+ * 两平台同一实现（SubProcess 直管）。铁律：用户自己的 cjh 实例（端口上已有的活实例）
+ * 永远不会被顶掉——拉起前只收**我们 spawn 的**那一只（换路径重试时旧进程若还占着端口，
+ * 新的那只绑定就会失败，而表象只是「10 秒后仍不通」）。
  *
  * 显式 `--bind 127.0.0.1`：cjh web 默认绑 0.0.0.0 且默认不带鉴权 token，跟着默认走等于把
  * 「能读写工作区、能跑 shell」的整套 API 摆到局域网上；本应用的消费面全在本机。
  */
-func spawnCjhWeb(bin: String): Bool {
-    if (let Some(old) <- gCjhProc) {
-        terminateCjhProc(old)
-        gCjhProc = None
-    }
+func ensureCjhUp(bin: String): Bool {
+    stopOwnedCjh()
     var proc: SubProcess
     try {
         proc = launch(bin, ["web", "--port", cjhPort().toString(), "--bind", "127.0.0.1"])
@@ -202,24 +186,36 @@ func spawnCjhWeb(bin: String): Bool {
     return false
 }
 
-/** 应用退出时收尾：只终止**自己拉起的** cjh（复用的不动——那是用户自己的实例） */
+/** 收掉**我们 spawn 的**那只 cjh（复用的不动——那是用户自己的实例） */
+func stopOwnedCjh(): Unit {
+    if (let Some(p) <- gCjhProc) {
+        if (p.isAlive()) {
+            eprintln("[cjnote] 收尾：终止 cjh web")
+            p.terminate()
+            // 给 200ms 走完收尾再 wait，避免僵尸
+            sleep(Duration.millisecond * 200)
+            let _ = p.wait()
+        }
+        gCjhProc = None
+    }
+}
+
+/** 重启**我们 spawn 的**那只 cjh（调用前已确认 gCjhOwned） */
+func restartOwnedCjh(): Bool {
+    match (findCjhBin()) {
+        case Some(bin) => return ensureCjhUp(bin)
+        case None =>
+            eprintln("[cjnote] 未找到随包 cjh（vendor/cjh/bin/）")
+            return false
+    }
+}
+
+/** 应用退出时收尾：只终止**自己 spawn 的** cjh（复用的不动——那是用户自己的实例） */
 public func shutdownCjh(): Unit {
     if (!gCjhOwned) {
         return
     }
-    if (let Some(p) <- gCjhProc) {
-        terminateCjhProc(p)
-    }
-}
-
-func terminateCjhProc(p: SubProcess): Unit {
-    if (p.isAlive()) {
-        eprintln("[cjnote] 收尾：终止 cjh web")
-        p.terminate()
-        // 给 200ms 走完收尾再 wait，避免僵尸
-        sleep(Duration.millisecond * 200)
-        let _ = p.wait()
-    }
+    stopOwnedCjh()
 }
 
 /**
@@ -451,7 +447,7 @@ public func saveCjhConfig(args: JsonObject): JsonValue {
 }
 
 /**
- * `cjh:restart`：让新配置生效——重启**本应用拉起的**那只 cjh。
+ * `cjh:restart`：让新配置生效——重启**本应用 spawn 的**那只 cjh。
  * 端口上是别人的实例时不动它（gCjhOwned=false），只回「需手动重启」这一事实。
  */
 public func restartCjhWeb(): JsonValue {
@@ -468,30 +464,23 @@ public func restartCjhWeb(): JsonValue {
         }))
         return obj
     }
-    match (findCjhBin()) {
-        case Some(bin) =>
-            let started = spawnCjhWeb(bin)
-            obj.put("ok", JsonBool(started))
-            obj.put("needsManualRestart", JsonBool(false))
-            obj.put("port", JsonInt(port))
-            obj.put("apiUrl", JsonString("http://127.0.0.1:${port}"))
-            obj.put("wsUrl", JsonString("ws://127.0.0.1:${port}/ws"))
-            if (!started) {
-                obj.put("error", JsonString("重启 cjh 失败：10 秒内健康检查不通，细节见应用日志"))
-            }
-            return obj
-        case None =>
-            obj.put("ok", JsonBool(false))
-            obj.put("error", JsonString("找不到随包 cjh（vendor/cjh/bin/）"))
-            return obj
+    let started = restartOwnedCjh()
+    obj.put("ok", JsonBool(started))
+    obj.put("needsManualRestart", JsonBool(false))
+    obj.put("port", JsonInt(port))
+    obj.put("apiUrl", JsonString("http://127.0.0.1:${port}"))
+    obj.put("wsUrl", JsonString("ws://127.0.0.1:${port}/ws"))
+    if (!started) {
+        obj.put("error", JsonString("重启 cjh 失败：10 秒内健康检查不通，细节见应用日志"))
     }
+    return obj
 }
 
 /**
  * `cjh:status` / `cjh:start` / `cjh:config` / `cjh:saveConfig` / `cjh:restart` 五条应用命令：
  * 把「cjh 在不在、能不能起、配置是什么、能不能改」交给页面问。
  *
- * 为什么不放插件里：这几条管的是**本应用自己 spawn 的进程**（句柄就在本文件的两个全局里）
+ * 为什么不放插件里：这几条管的是**本应用 spawn 的进程**（句柄在本文件的两个全局里）
  * 与**这台机器上 cjh 的配置文件**，没有跨应用复用价值；插件包是要给别的应用当依赖的，
  * 把 cjnote 的进程与配置策略塞进去等于把应用逻辑倒灌进框架（AGENTS §2 的依赖方向）。
  */
@@ -543,7 +532,7 @@ public class CjhCommands <: CommandHandler {
             obj.put("error", JsonString("打不开这个文件：${bin}（不存在或没有读权限）"))
             return obj
         }
-        if (spawnCjhWeb(bin)) {
+        if (ensureCjhUp(bin)) {
             obj.put("ok", JsonBool(true))
             obj.put("reused", JsonBool(false))
             putEndpoints(obj, port)

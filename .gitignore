@@ -8,3 +8,5 @@ store.json
 # 本机工具数据与截图草稿，不属于仓库
 .atomcode/
 shots/
+# Cangjie 运行时自动生成的 profile 转储
+item_data.dat

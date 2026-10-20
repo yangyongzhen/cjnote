@@ -64,6 +64,30 @@ public class ThemeSyncCommand <: CommandHandler {
     }
 }
 
+/** linenos:sync：「显示行号」勾选态从页面回写原生菜单。页面启动时从偏好恢复行号后
+ *  必须调一次，否则菜单勾与实际显示对不上（两条入口只改一条就露馅，同 theme:apply）。 */
+public class LinenosSyncCommand <: CommandHandler {
+    private let app: TauriApp
+
+    public init(app: TauriApp) {
+        this.app = app
+    }
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        var on = false
+        if (let Some(v) <- args.get("on")) {
+            match (v.kind()) {
+                case JsonKind.JsBool => on = v.asBool().getValue()
+                case _ => ()
+            }
+        }
+        let label = ipc.window
+        let _ = this.app.setMenuItemStateTo(label, "view.linenos", true, on)
+        return JsonBool(true)
+    }
+}
+
 /** titlebar:sync：把「文档名 · 保存状态 · 字数」推到原生标题行（与菜单栏同一行右侧）。
  *  返回 `supported` 让页面知道这次是真的写进去了、还是本平台没有这块（Windows = false）——
  *  页面据它决定要不要保留自己那条顶栏：没这块的平台把顶栏删了就彻底没标题了。 */
@@ -233,6 +257,9 @@ func buildAppMenu(): MenuModel {
     view.add(MenuItem.checkbox("apptheme.system", "界面主题：跟随系统", true))
     view.add(MenuItem.checkbox("apptheme.light", "界面主题：浅色", false))
     view.add(MenuItem.checkbox("apptheme.dark", "界面主题：深色", false))
+    view.add(MenuItem.separator())
+    // 独立开关（非单选组）：默认不显示行号，勾选状态由页面持久化后经 menu:sync 回写
+    view.add(MenuItem.checkbox("view.linenos", "显示行号", false))
     var help = ArrayList<MenuItem>()
     help.add(MenuItem.normal("help.about", "关于 cjnote…"))
     var items = ArrayList<MenuItem>()
@@ -339,6 +366,7 @@ main(): Int64 {
 
     // 页面自绘主题菜单 → 原生菜单勾选（两条入口必须一致，见 ThemeSyncCommand 注释）
     let _ = app.register("theme:apply", ThemeSyncCommand(app))
+    let _ = app.register("linenos:sync", LinenosSyncCommand(app))
     // 页面 → 原生标题行（宿主支持时页面顶栏整行让出来，见 TitlebarSyncCommand 注释）
     let _ = app.register("titlebar:sync", TitlebarSyncCommand(app))
     // cjh 生命周期交给页面问（三态 + 端点），进程句柄在 cjh_host.cj 的全局里
@@ -369,10 +397,12 @@ main(): Int64 {
         }
     }
 
-    // cjh（唯一 AI 后端）在后台线程拉起：cjh web 首次启动要装 Agent 栈，秒级；
-    // 放在装配期同步等会把首屏一起拖住。页面起来后轮询 `cjh:status` 拿端点，
-    // 正好覆盖「启动瞬间还没就绪 → 稍后就绪」这一段。
-    let _ = spawn { => ensureCjhWeb() }
+    // cjh（唯一 AI 后端）**不在装配期 spawn**：实测在 GTK/WebKit 多线程环境起来后的装配线程里
+    // launch() 子进程会让主线程死锁在 futex_wait——窗口能显示但菜单、点击、IPC 全部无响应。
+    // 改为页面起来后经 cjh:status 发现未运行 → cjh:start（命令 worker 线程）拉起；
+    // cjh:start 会复用已在跑的实例，不顶掉用户自己的 cjh。
+    // 注：真实屏「迟早整页冻结」另经 gdb 定案为 WebKit JSC 抢占 SIGUSR1（与 fork 无关），
+    // 已在 cj-tauri 框架层修复（issue #4：桥里保存/恢复信号处理器）。
 
     // 原生菜单 + 事件回投：必须在 run() 之前装配（预置类宿主能力，AGENTS §2）；
     // 点击由框架自动投前端 `menu:click`（能力清单 events 已声明），退出这类动作在应用层直接收口

@@ -26,6 +26,7 @@
     "report",
     "notes:env",
     "theme:apply",
+    "linenos:sync",
     "titlebar:sync",
     "cjh:status",
     "cjh:start",
