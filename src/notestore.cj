@@ -318,9 +318,17 @@ public class NoteStore {
             let entries = Directory.readFrom(this.dir)
             // 排序后再输出（Directory.readFrom 顺序不保证）
             var names = ArrayList<String>()
+            var mtimes = HashMap<String, String>()
             for (info in entries) {
                 if (!info.isDirectory()) {
                     names.add(info.name)
+                    // mtime 给 ISO 字符串（DateTime.toString）：前端 Date.parse 转数值排序；
+                    // 单个文件 stat 失败不拖垮整个列表（缺失 = 按最旧处理）
+                    try {
+                        mtimes.add(info.name, info.lastModificationTime.toString())
+                    } catch (e: Exception) {
+                        let _ = e
+                    }
                 }
             }
             // 简单插入排序（数量小）
@@ -341,6 +349,9 @@ public class NoteStore {
                 }
                 let item = JsonObject()
                 item.put("name", JsonString(name))
+                if (let Some(m) <- mtimes.get(name)) {
+                    item.put("mtime", JsonString(m))
+                }
                 var title = ""
                 try {
                     let text = String.fromUtf8(File.readFrom(this.notePath(name)))
@@ -484,6 +495,36 @@ public class NoteStore {
         out.put("ok", JsonBool(true))
         return out
     }
+
+    /** note:rename：真重命名（std.fs.rename 保留 mtime，「按修改时间」排序不跳位）；
+        目标名已存在直接拒（overwrite 不开）——静默覆盖另一篇笔记是笔记应用最不可饶恕的错 */
+    public func renameNote(rawName: String, newNameRaw: String): JsonValue {
+        let name = match (this.sanitizeName(rawName)) {
+            case Some(n) => n
+            case None => throw CommandException("note: 文件名不合法")
+        }
+        let newName = match (this.sanitizeName(newNameRaw)) {
+            case Some(n) => n
+            case None => throw CommandException("note: 新文件名不合法（只允许中文/字母/数字/空格/._-，且以 .md 结尾）")
+        }
+        let oldPath = this.notePath(name)
+        let newPath = this.notePath(newName)
+        if (!exists(oldPath)) {
+            throw CommandException("note: 文件不存在：${name}")
+        }
+        if (exists(newPath)) {
+            throw CommandException("note: 目标文件名已存在：${newName}")
+        }
+        try {
+            rename(oldPath, to: newPath)
+        } catch (e: Exception) {
+            throw CommandException("note: 重命名失败：${e}")
+        }
+        let out = JsonObject()
+        out.put("ok", JsonBool(true))
+        out.put("name", JsonString(newName))
+        return out
+    }
 }
 
 // ── CommandHandler 适配（5 个命令共用一个 handler 类，按 cmd 名分流） ──
@@ -532,6 +573,9 @@ public class NoteCommands <: CommandHandler {
         }
         if (cmd == "note:delete") {
             return this.store.delete(this.requireStr(args, "name"))
+        }
+        if (cmd == "note:rename") {
+            return this.store.renameNote(this.requireStr(args, "name"), this.requireStr(args, "newName"))
         }
         throw CommandException("note: unknown command ${cmd}")
     }

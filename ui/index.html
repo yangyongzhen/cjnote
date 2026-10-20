@@ -10,7 +10,7 @@
 :root {
   --bg: #1e2229; --bg2: #262b34; --bg3: #2d3340;
   --fg: #d8dee6; --fg-dim: #8b93a3; --accent: #4f9cf9;
-  --border: #363d4a; --ok: #58c288; --warn: #e0b25a;
+  --border: #363d4a; --ok: #58c288; --warn: #e0b25a; --err: #f85149; --accent-soft: #2e415e;
 }
 /* 界面主题：html 根类换一套 CSS 变量（默认 apptheme-system）。
    :root 的深色值就是 system 在「系统深色」下的落点；浅色两处共用同一套变量，
@@ -18,13 +18,13 @@
 html.apptheme-light {
   --bg: #f7f8fa; --bg2: #eef1f6; --bg3: #e3e8f0;
   --fg: #232833; --fg-dim: #66707f; --accent: #2f6fd0;
-  --border: #d5dbe6; --ok: #2f8f5b; --warn: #b57d1c;
+  --border: #d5dbe6; --ok: #2f8f5b; --warn: #b57d1c; --err: #c74a33; --accent-soft: #d9e6fb;
 }
 @media (prefers-color-scheme: light) {
   html.apptheme-system {
     --bg: #f7f8fa; --bg2: #eef1f6; --bg3: #e3e8f0;
     --fg: #232833; --fg-dim: #66707f; --accent: #2f6fd0;
-    --border: #d5dbe6; --ok: #2f8f5b; --warn: #b57d1c;
+    --border: #d5dbe6; --ok: #2f8f5b; --warn: #b57d1c; --err: #c74a33; --accent-soft: #d9e6fb;
   }
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -114,23 +114,43 @@ body.native-titlebar #topbar { display: none; }
 /* ── 三栏 ── */
 #main { flex: 1 1 auto; display: flex; min-height: 0; }
 #sidebar {
-  flex: 0 0 220px; display: flex; flex-direction: column;
+  /* 宽度走 --sidebar-w（拖右缘拖条调整，160~480px 夹取，双击复位 220）。
+     min/max-width 必须写死值、不能用 auto：flex 自动最小值坑——min-width:auto 会解析成
+     内容 min-content，大纲里长 nowrap 标题曾把侧栏整体撑宽（用户实测报过） */
+  flex: 0 0 var(--sidebar-w, 220px); min-width: 160px; max-width: 480px;
+  display: flex; flex-direction: column;
   background: var(--bg2); border-right: 1px solid var(--border); min-height: 0;
 }
+/* 侧栏宽度拖条：侧栏与工作区之间的窄条；悬停/拖动时 accent 提示可拖 */
+#resizer { flex: 0 0 6px; cursor: col-resize; background: transparent; }
+#resizer:hover { background: var(--accent); opacity: 0.35; }
+#resizer.dragging { background: var(--accent); opacity: 0.7; }
+body.resizing, body.resizing * { cursor: col-resize !important; user-select: none; }
 #sidebar .head {
   flex: 0 0 auto; padding: 10px 12px 6px; color: var(--fg-dim);
   font-size: 12px; letter-spacing: 1px; display: flex; align-items: center; justify-content: space-between;
 }
-#sidebar .head button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 16px; }
+/* 排序行：只占一行高，大纲页签激活时随刷新钮一起隐藏（showSide 切 display） */
+#sidebar .sortrow { padding: 0 6px 4px; }
+#sortby {
+  width: 100%; font-size: 11px; padding: 2px 4px; border-radius: 4px;
+  background: var(--bg3); color: var(--fg-dim); border: 1px solid var(--border);
+}
+/* head 里唯一的动作钮是刷新钮；不能写通用 button——通用钮规则特异性 (1,1,1) 高于
+   .side-tab (1,1,0)，会把非激活 tab 染成 accent 蓝，tab 高亮看起来就是「反了」（用户实测报过） */
+#sidebar .head #btn-refresh { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 16px; }
 #note-list { flex: 1 1 auto; overflow-y: auto; padding: 4px 6px; }
 /* 侧栏两页签：笔记列表 / 大纲（同一块区域切内容，形态对齐 markdown-notes） */
 #sidebar .side-tabs { display: flex; gap: 4px; }
+/* 底部 2px 恒为透明底线占位：防止切换激活态时文字上下跳 2px。
+   激活换成 accent 色——用户要的醒目选中标识（2026-10-19：原来只有淡色底片，选中态不明显） */
 #sidebar .side-tab {
-  background: none; border: none; padding: 2px 8px; border-radius: 5px; cursor: pointer;
+  background: none; border: none; border-bottom: 2px solid transparent;
+  padding: 2px 8px; border-radius: 5px; cursor: pointer;
   font-size: 12px; letter-spacing: 0; color: var(--fg-dim);
 }
-#sidebar .side-tab.active { background: var(--bg3); color: var(--fg); }
-#sidebar .side-body { flex: 1 1 auto; overflow-y: auto; padding: 4px 6px; }
+#sidebar .side-tab.active { background: var(--bg3); border-bottom-color: var(--accent); color: var(--fg); }
+#sidebar .side-body { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 4px 6px; }
 #outline .out {
   padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12.5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-dim);
@@ -189,52 +209,172 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
 #preview table { border-collapse: collapse; margin: 10px 0; }
 #preview th, #preview td { border: 1px solid var(--border); padding: 5px 10px; }
 #preview img { max-width: 100%; }
-/* ── AI 侧栏 ── */
+/* ── AI 侧栏（2026-10-19 视觉重做：状态胶囊 / markdown 气泡 / 空态引导 / 打字动效） ── */
 #ai {
   flex: 0 0 320px; display: flex; flex-direction: column; min-height: 0;
   background: var(--bg2); border-left: 1px solid var(--border);
 }
+/* 头部：标题 + 状态胶囊（点色：缺省=黄 / 就绪=绿 / 出错=红 / 忙=蓝呼吸） */
 #ai .head {
-  flex: 0 0 auto; padding: 10px 12px; font-size: 12px; letter-spacing: 1px;
-  color: var(--fg-dim); border-bottom: 1px solid var(--border);
+  flex: 0 0 auto; padding: 10px 12px;
   display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
 }
-#ai .head .state { color: var(--warn); }
+#ai .head .title { font-size: 13px; color: var(--fg); }
+#ai .head .title .ico { color: var(--accent); margin-right: 5px; }
+#ai .head .state {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; padding: 2px 9px; border-radius: 10px;
+  background: var(--bg3); color: var(--fg-dim);
+}
+#ai .head .right { display: flex; align-items: center; gap: 6px; }
+#ai-cfg-btn {
+  background: none; border: none; color: var(--fg-dim); cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 4px;
+}
+#ai-cfg-btn:hover { color: var(--fg); background: var(--bg3); }
+#ai .head .state i { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+#ai .head .state.ok i { background: var(--ok); }
+#ai .head .state.bad i { background: var(--err); }
+#ai .head .state.busy i { background: var(--accent); animation: aiPulse 1.2s infinite ease-in-out; }
+@keyframes aiPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
 #ai-msgs { flex: 1 1 auto; overflow-y: auto; padding: 12px; }
-.ai-empty { color: var(--fg-dim); font-size: 13px; line-height: 1.8; padding: 8px; }
+/* 空态引导卡：图标 + 说明 + 建议按钮（点一下直接把问题发出去） */
+.ai-greet { padding: 18px 6px 8px; text-align: center; color: var(--fg-dim); }
+.ai-greet .g-ico { font-size: 30px; color: var(--accent); margin-bottom: 8px; }
+.ai-greet .g-title { font-size: 14px; color: var(--fg); margin-bottom: 6px; }
+.ai-greet .g-sub { font-size: 12px; line-height: 1.7; margin-bottom: 14px; }
+.ai-greet .g-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.ai-greet .g-chips button {
+  background: var(--bg3); border: 1px solid var(--border); color: var(--fg-dim);
+  font-size: 12px; padding: 5px 10px; border-radius: 12px; cursor: pointer;
+}
+.ai-greet .g-chips button:hover { border-color: var(--accent); color: var(--accent); }
+/* 气泡：用户 = accent 浅色右对齐；AI = 深色卡左对齐、正文渲染 markdown；时间戳靠右 */
+.msg { margin-bottom: 12px; padding: 8px 10px; border-radius: 10px; font-size: 13px; }
+.msg .who { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--fg-dim); margin-bottom: 4px; }
+.msg .who .ico { font-size: 12px; }
+.msg .who .time { margin-left: auto; font-size: 10px; opacity: 0.7; }
+.msg .body { line-height: 1.65; word-break: break-word; }
+.msg.user { background: var(--accent-soft); margin-left: 16px; border-top-right-radius: 3px; }
+.msg.user .who { justify-content: flex-end; }
+.msg.user .body { white-space: pre-wrap; }
+.msg.assistant { background: var(--bg3); border-top-left-radius: 3px; }
+.msg.assistant .who .ico { color: var(--accent); }
+.msg.err { box-shadow: inset 0 0 0 1px var(--err); }
+/* 流式打字动效：三点跳动；首个 chunk 到达后 aiSetBody 换成正文 */
+.typing { display: inline-flex; gap: 4px; padding: 6px 2px; }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-dim); animation: aiTyping 1.2s infinite ease-in-out; }
+.typing i:nth-child(2) { animation-delay: 0.2s; }
+.typing i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes aiTyping { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+/* AI 回复的 markdown：与预览同一渲染源（marked + hljs），.md 域内样式防止撑破气泡 */
+.msg .md > :first-child { margin-top: 0; }
+.msg .md > :last-child { margin-bottom: 0; }
+.msg .md p { margin: 7px 0; }
+.msg .md h1, .msg .md h2, .msg .md h3 { margin: 10px 0 6px; font-size: 13.5px; }
+.msg .md ul, .msg .md ol { padding-left: 20px; margin: 7px 0; }
+.msg .md pre { background: var(--bg); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+.msg .md code { font-family: Consolas, monospace; font-size: 12px; }
+.msg .md p code, .msg .md li code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.msg .md blockquote { border-left: 3px solid var(--accent); padding-left: 10px; color: var(--fg-dim); margin: 7px 0; }
+.msg .md a { color: var(--accent); }
+.msg .md table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+.msg .md th, .msg .md td { border: 1px solid var(--border); padding: 4px 8px; font-size: 12px; }
+.msg .md img { max-width: 100%; }
+/* 工具条：两个上下文开关，放输入框正上方 */
+#ai .toolbar {
+  flex: 0 0 auto; display: flex; gap: 12px; padding: 6px 12px;
+  font-size: 11px; color: var(--fg-dim); border-top: 1px solid var(--border);
+}
+#ai .toolbar label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 #ai-input-row {
-  flex: 0 0 auto; display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border);
+  flex: 0 0 auto; display: flex; gap: 8px; padding: 10px;
+  border-top: 1px solid var(--border);
 }
 #ai-input {
-  flex: 1 1 auto; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
-  color: var(--fg); padding: 8px 10px; font-size: 13px; outline: none; resize: none; height: 40px;
+  flex: 1 1 auto; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--fg); padding: 8px 10px; font-size: 13px; outline: none; resize: none;
+  height: 40px; max-height: 120px; overflow-y: auto;
 }
 #ai-input:focus { border-color: var(--accent); }
 #ai-send {
-  flex: 0 0 auto; background: var(--accent); color: #fff; border: none; border-radius: 6px;
-  padding: 0 14px; cursor: pointer; font-size: 13px;
+  flex: 0 0 auto; background: var(--accent); color: #fff; border: none; border-radius: 8px;
+  padding: 0 14px; cursor: pointer; font-size: 13px; transition: filter 0.15s;
 }
-#ai-send:disabled { opacity: 0.4; cursor: default; }
-/* AI 消息气泡 */
-.msg { margin-bottom: 10px; padding: 7px 10px; border-radius: 8px; line-height: 1.6; word-break: break-word; white-space: pre-wrap; font-size: 13px; }
-.msg.user { background: var(--bg3); margin-left: 18px; }
-.msg.assistant { background: transparent; border: 1px solid var(--border); margin-right: 6px; }
-.msg .who { font-size: 11px; color: var(--fg-dim); margin-bottom: 3px; }
-.msg.err { border-color: var(--warn); }
+#ai-send:hover { filter: brightness(1.15); }
+#ai-send:disabled { opacity: 0.4; cursor: default; filter: none; }
 .ai-hint { font-size: 12px; color: var(--fg-dim); padding: 4px 8px; }
-/* 设置面板 */
-#ai-setup { padding: 12px; font-size: 12px; }
-#ai-setup label { display: block; color: var(--fg-dim); margin: 8px 0 3px; }
-#ai-setup input {
-  width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 5px;
-  color: var(--fg); padding: 6px 8px; font-size: 12px; outline: none;
+/* 危险操作审批卡（cjh 的 approval_request）：可点的批准 / 拒绝 + 倒计时 */
+.approval {
+  margin: 10px 0; padding: 10px 12px; border-radius: 8px;
+  background: rgba(220, 160, 60, 0.08); border: 1px solid rgba(220, 160, 60, 0.45);
+  font-size: 12px;
 }
-#ai-setup input:focus { border-color: var(--accent); }
-#ai-setup .save-row { margin-top: 10px; text-align: right; }
-#ai-setup button {
-  background: var(--accent); color: #fff; border: none; border-radius: 5px;
-  padding: 5px 14px; cursor: pointer; font-size: 12px;
+.approval .ahead { color: #e0b060; font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+.approval .atime { color: var(--fg-dim); font-weight: 400; font-size: 11px; }
+.approval .areason { color: var(--fg-dim); margin-top: 6px; line-height: 1.6; }
+.approval .aargs {
+  margin: 8px 0 0; padding: 8px; max-height: 180px; overflow: auto;
+  background: var(--bg1, #1a1a1a); border: 1px solid var(--border); border-radius: 5px;
+  color: var(--fg); font-size: 11px; white-space: pre-wrap; word-break: break-all;
 }
+.approval .abtns { display: flex; gap: 8px; margin-top: 10px; }
+.approval .abtn {
+  border: 1px solid var(--border); background: var(--bg3); color: var(--fg);
+  border-radius: 5px; padding: 5px 16px; cursor: pointer; font-size: 12px;
+}
+.approval .abtn.ok { border-color: #4c9; color: #4c9; }
+.approval .abtn.no { border-color: #c66; color: #c66; }
+.approval .abtn:hover { filter: brightness(1.2); }
+.approval .abtn:disabled { opacity: 0.4; cursor: default; filter: none; }
+.approval.decided { opacity: 0.75; }
+/* 工具活动单行（tool_start / tool_result）：挂在 AI 气泡下方 */
+.ai-tools { font-size: 11px; color: var(--fg-dim); margin-top: 6px; word-break: break-all; }
+.ai-greet.off .g-ico { color: #e0b060; }
+/* ── 对话 / 设置 两个视图：同一时刻只显示一个（#ai.settings 切换） ── */
+#ai-chat-view { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+#ai-settings-view { flex: 1 1 auto; display: none; flex-direction: column; min-height: 0; }
+#ai.settings #ai-chat-view { display: none; }
+#ai.settings #ai-settings-view { display: flex; }
+#ai-settings-view .sethead {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-size: 12px; color: var(--fg-dim);
+}
+#ai-set-back {
+  background: none; border: 1px solid var(--border); border-radius: 5px;
+  color: var(--fg-dim); cursor: pointer; font-size: 12px; padding: 1px 8px;
+}
+#ai-set-back:hover { color: var(--fg); border-color: var(--accent); }
+#ai-settings-view .setbody { flex: 1 1 auto; overflow-y: auto; padding: 10px 12px 18px; font-size: 12px; }
+#ai-settings-view .setgroup {
+  color: var(--fg-dim); font-size: 11px; letter-spacing: 0.04em;
+  margin: 16px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
+}
+#ai-settings-view .setgroup:first-child { margin-top: 0; }
+#ai-settings-view .setlabel { display: block; color: var(--fg-dim); margin: 10px 0 4px; }
+#ai-settings-view input, #ai-settings-view select {
+  width: 100%; box-sizing: border-box; background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 5px; color: var(--fg);
+  padding: 6px 8px; font-size: 12px; outline: none;
+}
+#ai-settings-view input:focus, #ai-settings-view select:focus { border-color: var(--accent); }
+#ai-settings-view .sethint { color: var(--fg-dim); font-size: 11px; margin-top: 4px; }
+#ai-settings-view .setstatus { display: flex; gap: 8px; padding: 2px 0; line-height: 1.6; }
+#ai-settings-view .setstatus .bk { color: var(--fg-dim); flex: 0 0 30px; }
+#ai-settings-view .setstatus .bv { color: var(--fg); word-break: break-all; }
+#ai-settings-view .setstatus .bv.good { color: #4c9; }
+#ai-settings-view .setstatus .bv.bad { color: #c66; }
+#ai-settings-view .setactions { display: flex; gap: 8px; margin-top: 16px; }
+#ai-settings-view .setactions button {
+  flex: 1; background: var(--bg3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 6px 10px; cursor: pointer; font-size: 12px;
+}
+#ai-settings-view .setactions button:hover { border-color: var(--accent); }
+#set-save { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+#set-save:hover { filter: brightness(1.1); }
+#ai-settings-view .setnote { color: var(--fg-dim); font-size: 11px; line-height: 1.7; margin-top: 14px; }
 /* L2 选区动作：浮层工具条 + diff 确认条 */
 #sel-bar {
   position: absolute; display: none; z-index: 50;
@@ -277,6 +417,30 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
   margin-top: 16px; width: 100%; padding: 7px 0; cursor: pointer;
   background: var(--accent); color: #fff; border: none; border-radius: 6px;
 }
+/* ── 通用小弹窗：重命名（带输入框）/ 删除确认（纯文本）。与关于浮层同源：
+   四边显式写（本机 WebKitGTK 不认 inset）、.on 切 display、z-index 压在关于之上 ── */
+#modal {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 300; display: none;
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.45);
+}
+#modal.on { display: flex; }
+.modal-card {
+  width: 340px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+.modal-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+#modal-input {
+  width: 100%; padding: 6px 8px; font-size: 13px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg3); color: var(--fg);
+}
+#modal-input:focus { outline: none; border-color: var(--accent); }
+.modal-text { font-size: 12.5px; color: var(--fg); line-height: 1.6; }
+.modal-btns { margin-top: 14px; display: flex; gap: 8px; }
+.modal-btns button {
+  flex: 1; padding: 7px 0; cursor: pointer; border-radius: 6px; font-size: 12.5px;
+  border: 1px solid var(--border); background: var(--bg3); color: var(--fg);
+}
+.modal-btns #modal-ok { background: var(--accent); border: none; color: #fff; }
 /* ── 「快速打开」浮层（Ctrl+P / 文件菜单 → 快速打开…）：页内搜索笔记库，不起原生对话框。
    定位同样四边显式写（`inset` 在本机 WebKitGTK 不生效，见上面关于浮层那条注释） ── */
 #quick-open {
@@ -332,9 +496,16 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
       </span>
       <button id="btn-refresh" title="刷新列表">⟳</button>
     </div>
+    <div class="sortrow" id="sortrow">
+      <select id="sortby" title="列表排序方式">
+        <option value="mtime">按修改时间</option>
+        <option value="name">按名称</option>
+      </select>
+    </div>
     <div id="note-list" class="side-body"></div>
     <div id="outline" class="side-body" style="display:none"></div>
   </div>
+  <div id="resizer" title="拖动调整侧栏宽度；双击恢复默认"></div>
   <div id="work">
     <div id="work-head">
       <span class="seg" id="mode-seg">
@@ -361,19 +532,62 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
   </div>
   <div id="ai">
     <div class="head">
-      <span>AI 助手</span>
-      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--fg-dim);margin-right:8px;">
-        <input type="checkbox" id="ai-ref-note"> 引用当前笔记
-      </label>
-      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--fg-dim);margin-right:8px;">
-        <input type="checkbox" id="ai-lib-note"> 问笔记库
-      </label>
-      <span class="state" id="ai-state">未配置</span>
+      <span class="title"><span class="ico">✦</span>AI 助手</span>
+      <span class="right">
+        <button id="ai-cfg-btn" title="设置">⚙</button>
+        <span class="state" id="ai-state"><i></i>连接中…</span>
+      </span>
     </div>
-    <div id="ai-msgs"></div>
-    <div id="ai-input-row">
-      <textarea id="ai-input" placeholder="问点什么…（Enter 发送）"></textarea>
-      <button id="ai-send">发送</button>
+    <div id="ai-chat-view">
+      <div id="ai-msgs"></div>
+      <div class="toolbar">
+        <label><input type="checkbox" id="ai-ref-note"> 引用当前笔记</label>
+        <label><input type="checkbox" id="ai-lib-note"> 问笔记库</label>
+      </div>
+      <div id="ai-input-row">
+        <textarea id="ai-input" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button id="ai-send">发送</button>
+      </div>
+    </div>
+    <div id="ai-settings-view">
+      <div class="sethead">
+        <button id="ai-set-back" title="返回对话">←</button>
+        <span>设置</span>
+      </div>
+      <div class="setbody">
+        <div class="setgroup">AI 后端（cjh）</div>
+        <div class="setstatus">
+          <span class="bk">状态</span><span class="bv" id="set-state">查询中…</span>
+        </div>
+        <div class="setstatus">
+          <span class="bk">端点</span><span class="bv" id="set-endpoint">-</span>
+        </div>
+        <label class="setlabel" for="set-base">接入地址（Base URL）</label>
+        <input id="set-base" placeholder="https://api.example.com/v1">
+        <label class="setlabel" for="set-key">API Key</label>
+        <input id="set-key" type="password" placeholder="留空＝不修改">
+        <div class="sethint" id="set-key-hint">当前：未设置</div>
+        <label class="setlabel" for="set-model">模型名</label>
+        <input id="set-model" placeholder="glm-5.3-flash">
+        <label class="setlabel" for="set-proto">接入协议</label>
+        <select id="set-proto">
+          <option value="openai">OpenAI 兼容（chat/completions）</option>
+          <option value="anthropic">Anthropic（messages）</option>
+        </select>
+        <div class="setgroup">生成参数</div>
+        <label class="setlabel" for="set-temp">温度 temperature</label>
+        <input id="set-temp" type="number" step="0.05" min="0" max="2" placeholder="0.7">
+        <label class="setlabel" for="set-maxtok">单轮最大 tokens</label>
+        <input id="set-maxtok" type="number" min="1" placeholder="16384">
+        <label class="setlabel" for="set-maxiter">最大工具轮数</label>
+        <input id="set-maxiter" type="number" min="1" placeholder="50">
+        <div class="setactions">
+          <button id="set-save">保存并生效</button>
+          <button id="set-refresh">重新读取</button>
+        </div>
+        <div class="setnote" id="set-note">配置写在 cjh 自己的配置目录（settings.json / auth.json），本应用不另存密钥；
+          保存后需要 cjh 重启才生效，本应用拉起的实例会自动重启。</div>
+      </div>
     </div>
   </div>
 </div>
@@ -408,6 +622,8 @@ var bridge = null;
 var cm = null;                      // CodeMirror 实例；null = fallback textarea
 var notes = [];                     // [{name, path}]
 var current = "";                   // 当前笔记文件名
+var sortBy = "mtime";  // 默认按修改时间：列表的意义是「最近动过什么」；偏好落 store（ui.sortby）
+var noteMtimes = {};   // name → mtime（note:list 给的 ISO 字符串，Date.parse 转数值排序）
 var dirty = false;
 
 function $(id) { return document.getElementById(id); }
@@ -525,23 +741,69 @@ function report(line) {
 }
 function eprintlnShim(line) { console.log(line); }
 
-// ── AI 侧栏（M3）：直连 chat/completions 流式对话 ──
-// 管道形状照 ai-chat 实测结论：http:chunk 只给字节增量（emitLatest 保最新），
-// 监听必须先于 invoke 挂；SSE 帧解析在前端全量重解（简单无状态，几十 KB 无感）。
-var aiCfg = { base: "", key: "", model: "" };
+// ── AI 侧栏：后端只有 cjh（宿主拉起 vendor 里那份），页面经 ws 插件直连它的聊天流 ──
+// cjh 是 agent：system / 工具 / 会话都由它管，页面只发一问、收一答的帧流。
+var cjh = { state: "missing", api: "", ws: "", up: false, session: "", checking: false };
 var aiStreaming = false;
-var aiHistory = [];   // [{role, content}]（不含 system）
+var aiTurn = null;        // 本轮流式：{ kind: "chat"|"l2", body, acc, tools }
+var curApproval = null;   // 未决的审批卡（cjh 工具串行调，同时只会有一个）
 
+// 状态胶囊：文案 + 点色（ok=绿 / bad=红 / busy=蓝呼吸 / 缺省=黄）
+function aiSetState(text, kind) {
+  var st = $("ai-state");
+  st.innerHTML = "<i></i>" + text;   // 文案都是内部串，无用户内容
+  st.className = "state" + (kind ? " " + kind : "");
+}
+function aiNow() {
+  var d = new Date();
+  return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+}
+// AI 回复的 markdown 渲染：与预览同一渲染源（marked + hljs），缺失退化为纯文本
+function aiRenderMd(container, text) {
+  if (!text || !text.trim()) { container.textContent = "（服务返回了空回复，重试一下）"; return; }
+  if (window.marked) {
+    try {
+      container.innerHTML = window.marked.parse(text);
+      if (window.hljs) {
+        var blocks = container.querySelectorAll("pre code");
+        for (var i = 0; i < blocks.length; i++) { try { window.hljs.highlightElement(blocks[i]); } catch (err) {} }
+      }
+      return;
+    } catch (e) { /* 退化为纯文本 */ }
+  }
+  container.textContent = text;
+}
 function aiMsgEl(role, text, streaming) {
   var box = $("ai-msgs");
+  var greet = box.querySelector(".ai-greet");
+  if (greet) { box.removeChild(greet); }   // 第一条消息顶掉空态卡
   var el = document.createElement("div");
-  el.className = "msg " + role + (role === "assistant" && text.indexOf("**[错误]**") === 0 ? " err" : "");
+  var isErr = role === "assistant" && text.indexOf("**[错误]**") === 0;
+  el.className = "msg " + role + (isErr ? " err" : "");
   var who = document.createElement("div");
   who.className = "who";
-  who.textContent = role === "user" ? "我" : "AI";
+  if (role === "assistant") {
+    var ico = document.createElement("span");
+    ico.className = "ico"; ico.textContent = "✦";
+    who.appendChild(ico);
+  }
+  var nm = document.createElement("span");
+  nm.textContent = role === "user" ? "你" : "AI 助手";
+  who.appendChild(nm);
+  var tm = document.createElement("span");
+  tm.className = "time"; tm.textContent = aiNow();
+  who.appendChild(tm);
   var bodyEl = document.createElement("div");
-  bodyEl.className = "body";
-  if (text) { bodyEl.textContent = text; }
+  bodyEl.className = "body" + (role === "assistant" ? " md" : "");
+  if (role === "assistant") {
+    if (streaming) {
+      bodyEl.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+    } else if (text) {
+      aiRenderMd(bodyEl, text);
+    }
+  } else if (text) {
+    bodyEl.textContent = text;
+  }
   el.appendChild(who);
   el.appendChild(bodyEl);
   box.appendChild(el);
@@ -550,204 +812,633 @@ function aiMsgEl(role, text, streaming) {
 }
 function aiSetBody(el, text) {
   var b = el.querySelector(".body");
-  if (b) { b.textContent = text; }
+  if (b) { aiRenderMd(b, text); }
   el.className = "msg assistant" + (text.indexOf("**[错误]**") === 0 ? " err" : "");
   var box = $("ai-msgs");
   box.scrollTop = box.scrollHeight;
 }
-// SSE 帧 → 纯文本（OpenAI 兼容）：data: 行取 JSON 拼 delta，[DONE] 收，半截 JSON 等下一轮
-function sseToText(acc) {
-  var out = "";
-  var lines = acc.split("\n");
-  for (var i = 0; i < lines.length; i++) {
-    var t = lines[i].trim();
-    if (t.indexOf("data:") !== 0) { continue; }
-    var d = t.slice(5).trim();
-    if (!d || d === "[DONE]") { continue; }
-    try {
-      var j = JSON.parse(d);
-      var ch = j.choices && j.choices[0];
-      var delta = ch && ch.delta && ch.delta.content;
-      if (typeof delta === "string") { out += delta; }
-      if (j.error && j.error.message) { out += "\n\n[服务端错误] " + j.error.message; }
-    } catch (e) { /* 块边界上的半截 JSON：下一轮全量重解自然补上 */ }
+// 空态引导卡：图标 + 说明 + 建议按钮（点一下直接把问题发出去）
+function aiGreet(sub) {
+  var box = $("ai-msgs");
+  box.innerHTML = "";
+  var card = document.createElement("div");
+  card.className = "ai-greet";
+  card.innerHTML =
+    '<div class="g-ico">✦</div>' +
+    '<div class="g-title">AI 助手</div>' +
+    '<div class="g-sub"></div>' +
+    '<div class="g-chips">' +
+    "<button>总结当前笔记</button>" +
+    "<button>检查错别字</button>" +
+    "<button>列一个大纲</button>" +
+    "</div>";
+  card.querySelector(".g-sub").textContent = sub || "写笔记时随时问我。";
+  var chips = card.querySelectorAll(".g-chips button");
+  var prompts = ["帮我总结当前笔记", "检查这篇笔记的错别字和语句问题", "给这篇笔记列一个大纲"];
+  for (var i = 0; i < chips.length; i++) {
+    (function (q) {
+      chips[i].onclick = function () {
+        var ref = document.getElementById("ai-ref-note");
+        if (ref) { ref.checked = true; }   // 三个建议都要正文，自动勾上「引用当前笔记」
+        $("ai-input").value = q;
+        aiSend();
+      };
+    })(prompts[i]);
   }
-  return out;
+  box.appendChild(card);
 }
-// 组 messages：system 基底 + 「引用当前笔记」注入当前文档全文（M4）+ 「问笔记库」注入检索命中片段（L3）
-function buildAiMessages(extra) {
-  var sys = "你是 cjnote 的写作助手，回答简洁、适合放进步骤笔记。";
-  var ref = document.getElementById("ai-ref-note");
-  if (ref && ref.checked && current) {
-    var doc = getDoc();
-    if (doc.length > 0) {
-      sys += "\n\n用户当前正在编辑的笔记《" + current + "》全文如下，回答时结合它的内容：\n\n" + doc;
+// ── cjh 连接：状态 → 端点 → WS ──
+// 宿主在后台拉起 cjh web（vendor/cjh/bin/ 里的随包二进制），页面只连它的 WS 聊天流。
+// 三态来自 cjh:status：running（已就绪）/ configured（有二进制没起）/ missing（找不到）
+function cjhBoot(force) {
+  if (cjh.checking && !force) { return Promise.resolve(); }
+  cjh.checking = true;
+  aiSetState("连接中…", "busy");
+  return invoke("cjh:status").then(function (st) {
+    st = st || {};
+    cjh.state = st.state || "missing";
+    if (cjh.state === "running") {
+      cjh.api = st.apiUrl || ""; cjh.ws = st.wsUrl || "";
+      cjh.checking = false;
+      return cjhConnect();
     }
-  }
-  if (extra && extra.length > 0) {
-    sys += "\n\n以下是用户笔记库里与提问相关的笔记片段（命中即截取，可能不完整）。" +
-      "回答时优先依据这些片段，并注明出自哪篇笔记：\n\n" + extra;
-  }
-  return [{ role: "system", content: sys }].concat(aiHistory);
+    if (cjh.state === "configured") {
+      // 有二进制没起来：让宿主拉一次（cjh:start 会复用已在跑的实例，不顶掉用户的）
+      aiSetState("启动 cjh…", "busy");
+      return invoke("cjh:start", {}).then(function (r) {
+        cjh.checking = false;
+        if (r && r.ok) {
+          cjh.api = r.apiUrl || ""; cjh.ws = r.wsUrl || ""; cjh.state = "running";
+          return cjhConnect();
+        }
+        aiSetState("未就绪", "bad");
+        aiGreetOffline(cjh.state);
+        report("CJH-WARN 启动失败: " + ((r && r.error) || "unknown"));
+      });
+    }
+    cjh.checking = false;
+    aiSetState("未连接", "bad");
+    aiGreetOffline(cjh.state);
+  }).catch(function (e) {
+    cjh.checking = false;
+    aiSetState("检查失败", "bad");
+    report("CJH-WARN 状态检查失败: " + (e && e.message ? e.message : e));
+  });
 }
-// Base URL 归一化：用户不必背「必须写完整 chat/completions 端点」
-//   裸域名 / 其它路径   → 追加 /v1/chat/completions
-//   以版本段结尾（/v1、/v4…）→ 追加 /chat/completions
-//   已含 /chat/completions   → 原样（只去尾部斜杠）
-// 这样 api.deepseek.com、api.deepseek.com/v1、…/v1/chat/completions 三种写法等价
-function normalizeBaseUrl(raw) {
-  var u = String(raw || "").trim();
-  while (u.length > 0 && u.charAt(u.length - 1) === "/") { u = u.slice(0, -1); }
-  if (u === "") { return ""; }
-  if (u.slice(-17) === "/chat/completions") { return u; }
-  var tail = u.slice(u.lastIndexOf("/") + 1);
-  // 版本段判定：v 开头 + 其后全数字（v1 / v4 / v1beta 都算版本段）
-  // 注意判定的是 v 之后的部分——拿整段去测 \D 会把 "v" 自己算成非数字，永远判不中
-  var verLike = tail.length > 1 && tail.charAt(0) === "v" && !/\D/.test(tail.slice(1).replace(/beta$/, ""));
-  if (verLike) { return u + "/chat/completions"; }
-  return u + "/v1/chat/completions";
+function cjhConnect() {
+  if (!cjh.ws) { return Promise.resolve(); }
+  if (cjh.up) { aiSetState("就绪", "ok"); updateAiCfgTip(); return Promise.resolve(); }
+  return invoke("ws:connect", { url: cjh.ws }).then(function () {
+    cjh.up = true;
+    aiSetState("就绪", "ok");
+    updateAiCfgTip();
+    // 续聊：会话内容在 cjh 侧，页面只留着 id
+    if (cjh.session) { cjhWsSend({ type: "resume_session", session_id: cjh.session }).catch(function () {}); }
+  }).catch(function (e) {
+    cjh.up = false;
+    aiSetState("未连接", "bad");
+    aiGreetOffline(cjh.state);
+    report("CJH-WARN 连接失败: " + (e && e.message ? e.message : e));
+  });
 }
+function cjhWsSend(obj) { return invoke("ws:send", { text: JSON.stringify(obj) }); }
+function updateAiCfgTip() {
+  var btn = $("ai-cfg-btn");
+  if (!btn) { return; }
+  btn.title = cjh.up ? ("AI 后端：cjh 已连接 " + cjh.ws + "（点击查看）") : "AI 后端：cjh 未连接（点击查看）";
+}
+// ── 设置页：点 ⚙ 切到设置视图（不是一个只会转圈的状态卡） ──
+// 配置读写交给宿主（cjh:config / cjh:saveConfig / cjh:restart）：页面没有 fs 权限碰 ~/.cjh，
+// 而 cjh 的 /api/settings 是字段白名单——接入协议 provider_protocol 根本写不进去（实测），
+// 所以只能「改配置文件 + 重启 cjh」。密钥读回来是脱敏的，留空即不修改。
+function aiSettingsOpen() {
+  var ai = $("ai");
+  return !!(ai && ai.classList.contains("settings"));
+}
+function aiView(which) {
+  var ai = $("ai");
+  if (!ai) { return; }
+  if (which === "settings") {
+    ai.classList.add("settings");
+  } else {
+    ai.classList.remove("settings");
+  }
+  updateAiCfgTip();
+}
+function openAiSettings() {
+  aiView("settings");
+  loadCjhConfigForm();
+  refreshCjhStatusLine();
+}
+function refreshCjhStatusLine() {
+  var st = $("set-state");
+  var ep = $("set-endpoint");
+  if (!st) { return; }
+  invoke("cjh:status").then(function (s) {
+    s = s || {};
+    var names = { running: "运行中", configured: "有二进制，未启动", missing: "未找到随包二进制" };
+    st.textContent = names[s.state] || (s.state || "未知");
+    st.className = "bv " + (s.state === "running" ? "good" : "bad");
+    if (ep) { ep.textContent = s.wsUrl ? (s.wsUrl + "　" + (s.apiUrl || "")) : "（未就绪）"; }
+  }).catch(function (e) {
+    st.textContent = "查询失败：" + (e && e.message ? e.message : e);
+    st.className = "bv bad";
+  });
+}
+// 回填表单：密钥只有脱敏回显，输入框永远留空（留空＝不修改，避免把 **** 写回去）
+function loadCjhConfigForm() {
+  var hint = $("set-key-hint");
+  invoke("cjh:config").then(function (c) {
+    c = c || {};
+    $("set-base").value = c.baseUrl || "";
+    $("set-model").value = c.model || "";
+    $("set-proto").value = c.protocol || "openai";
+    $("set-temp").value = (typeof c.temperature === "number" && c.temperature > 0) ? c.temperature : "";
+    $("set-maxtok").value = c.maxTokens || "";
+    $("set-maxiter").value = c.maxIterations || "";
+    $("set-key").value = "";
+    if (hint) {
+      hint.textContent = c.hasKey
+        ? ("当前已保存：" + (c.apiKey || "****") + "（留空则不修改）")
+        : "当前：未设置";
+    }
+  }).catch(function (e) {
+    if (hint) { hint.textContent = "读取配置失败：" + (e && e.message ? e.message : e); }
+  });
+}
+// 保存 → 重启 cjh 让新配置真正生效（外部实例则如实说明需手动重启，不假装成功）
+function saveCjhConfigForm() {
+  var note = $("set-note");
+  var btn = $("set-save");
+  var payload = {
+    baseUrl: $("set-base").value.trim(),
+    model: $("set-model").value.trim(),
+    protocol: $("set-proto").value,
+    apiKey: $("set-key").value.trim()
+  };
+  var temp = parseFloat($("set-temp").value);
+  if (!isNaN(temp)) { payload.temperature = temp; }
+  var mt = parseInt($("set-maxtok").value, 10);
+  if (!isNaN(mt) && mt > 0) { payload.maxTokens = mt; }
+  var mi = parseInt($("set-maxiter").value, 10);
+  if (!isNaN(mi) && mi > 0) { payload.maxIterations = mi; }
+  btn.disabled = true;
+  btn.textContent = "保存中…";
+  invoke("cjh:saveConfig", payload).then(function (r) {
+    r = r || {};
+    if (!r.ok) {
+      btn.disabled = false;
+      btn.textContent = "保存并生效";
+      if (note) { note.textContent = "保存失败：配置目录不可写（详情见应用日志）。"; }
+      return;
+    }
+    var wrote = (r.wrote || []).join("、") || "无变更";
+    return invoke("cjh:restart").then(function (rr) {
+      rr = rr || {};
+      btn.disabled = false;
+      btn.textContent = "保存并生效";
+      if (rr.ok) {
+        // 重启后旧连接已断：重置连接标记再连一次，状态胶囊与设置页都跟着刷新
+        cjh.up = false;
+        cjhBoot(true).then(function () { refreshCjhStatusLine(); });
+        if (note) { note.textContent = "已保存并重启 cjh（写入：" + wrote + "）。"; }
+      } else {
+        if (note) {
+          note.textContent = "已写入配置：" + wrote + "。" + (rr.error || "需手动重启 cjh 后生效。");
+        }
+      }
+      refreshCjhStatusLine();
+    });
+  }).catch(function (e) {
+    btn.disabled = false;
+    btn.textContent = "保存并生效";
+    if (note) { note.textContent = "保存失败：" + (e && e.message ? e.message : e); }
+  });
+}
+// 发一条提问：把「引用当前笔记 / 问笔记库」拼进消息本身（cjh 是 agent，system 由它自己管，
+// 页面不再自己组织 messages——上下文只能以「随消息附上的资料」出现）
 function aiSend() {
   if (aiStreaming) { return; }
   var input = $("ai-input");
   var text = input.value.trim();
   if (!text) { return; }
-  if (!aiCfg.base || !aiCfg.model) {
-    aiShowSetup("先配置 AI 服务（Base URL / API Key / 模型名）");
+  if (!cjh.up) {
+    // 未连接：先按一次重连，连上后再发（用户不该为「后端刚起来」重敲一遍）
+    report("CJH-WARN 未连接，先重连再发");
+    cjhBoot(true).then(function () {
+      if (cjh.up) { aiSend(); }
+    });
     return;
+  }
+  var ctx = "";
+  var ref = document.getElementById("ai-ref-note");
+  if (ref && ref.checked && current) {
+    var doc = getDoc();
+    if (doc.length > 0) { ctx += "【当前笔记《" + current + "》全文】\n\n" + doc + "\n\n"; }
   }
   var lib = document.getElementById("ai-lib-note");
   if (lib && lib.checked) {
-    // 问笔记库：先检索（页面只传关键词，路径由 NoteStore 内部拼），命中片段进 system
-    $("ai-state").textContent = "检索中…";
+    // 问笔记库：先检索（页面只传关键词，路径由 NoteStore 内部拼），命中片段随消息带上
+    aiSetState("检索中…", "busy");
     invoke("note:search", { query: text }).then(function (r) {
       var notes = (r && r.notes) || [];
-      var ctx = "";
+      var s = "";
       for (var i = 0; i < notes.length; i++) {
-        ctx += "《" + notes[i].title + "》（" + notes[i].name + "）\n" + notes[i].snippet + "\n\n";
+        s += "《" + notes[i].title + "》（" + notes[i].name + "）\n" + notes[i].snippet + "\n\n";
       }
-      aiStart(text, ctx, notes.length);
-    }).catch(function () {
-      aiStart(text, "", 0);
-    });
+      aiAskCjh(text, ctx + (s ? "【笔记库检索命中】\n\n" + s : ""));
+    }).catch(function () { aiAskCjh(text, ctx); });
     return;
   }
-  aiStart(text, "", 0);
+  aiAskCjh(text, ctx);
 }
-function aiStart(text, extra, hits) {
-  var input = $("ai-input");
-  input.value = "";
-  aiHistory.push({ role: "user", content: text });
+function aiAskCjh(text, ctx) {
+  $("ai-input").value = "";
   aiMsgEl("user", text);
   aiStreaming = true;
   $("ai-send").textContent = "…";
-  $("ai-state").textContent = hits > 0 ? ("回复中（库内命中 " + hits + " 篇）") : "回复中";
-  // 占位气泡（创建一次不再重绘）+ 累积流
-  var body = aiMsgEl("assistant", "", true);
-  var acc = "";
-  // 监听先于 invoke（块可能立刻到达）
-  var off = bridge.listen("http:chunk", function (p) {
-    if (p.done) { return; }
-    acc += p.delta || "";
-    aiSetBody(body, sseToText(acc));
-  });
-  var payload = JSON.stringify({
-    model: aiCfg.model,
-    messages: buildAiMessages(extra),
-    stream: true
-  });
-  invoke("http:postStream", {
-    url: normalizeBaseUrl(aiCfg.base),
-    body: payload,
-    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + aiCfg.key }
-  }).then(function (stat) {
-    off();
-    // 空回复必须可见：一条 data: 行都没有 ≠ 成功——多半是端点/白名单不对（ai-chat 实测教训）
-    var full = sseToText(acc);
-    if (full === "") {
-      full = "**[错误]** 没有收到任何流式内容（HTTP " + (stat && stat.status ? stat.status : "?") +
-        "，共 " + (stat && stat.received ? stat.received : 0) + " 字节）。" +
-        "实际请求端点：" + normalizeBaseUrl(aiCfg.base) +
-        "。检查它是否可达、是否在 http 白名单内。";
-    }
-    aiHistory.push({ role: "assistant", content: full });
-    aiSetBody(body, full);
+  $("ai-send").disabled = true;
+  aiSetState("回复中", "busy");
+  aiTurn = { kind: "chat", body: aiMsgEl("assistant", "", true), acc: "", tools: [] };
+  var frame = { type: "chat", message: ctx ? (ctx + "【我的问题】\n" + text) : text };
+  if (cjh.session) { frame.session_id = cjh.session; }
+  cjhWsSend(frame).catch(function (e) {
+    var msg = "**[错误]** 发送失败：" + (e && e.message ? e.message : String(e));
     aiStreaming = false;
     $("ai-send").textContent = "发送";
-    $("ai-state").textContent = "就绪";
-  }).catch(function (e) {
-    off();
-    var msg = "**[错误]** 请求失败：" + (e && e.message ? e.message : String(e));
-    aiHistory.push({ role: "assistant", content: msg });
-    aiSetBody(body, msg);
-    aiStreaming = false;
-    $("ai-send").textContent = "发送";
-    $("ai-state").textContent = "出错";
+    $("ai-send").disabled = false;
+    aiSetState("出错", "bad");
+    if (aiTurn && aiTurn.body) { aiSetBody(aiTurn.body, msg); }
+    aiTurn = null;
   });
 }
-// 设置面板（配置链路 #3 接 store 持久化后启用）
-function aiShowSetup(msg) {
+// 后端未就绪时的引导卡：说清是哪一种「没连上」，并给一个能点的下一步
+function aiGreetOffline(state) {
   var box = $("ai-msgs");
   box.innerHTML = "";
-  var setup = document.createElement("div");
-  setup.id = "ai-setup";
-  setup.innerHTML =
-    (msg ? '<div class="ai-hint">' + msg + "</div>" : "") +
-    '<label>Base URL（填到 /v1 即可，自动补 chat/completions）</label>' +
-    '<input id="cfg-base" placeholder="https://api.deepseek.com/v1">' +
-    '<label>API Key</label>' +
-    '<input id="cfg-key" type="password" placeholder="sk-…">' +
-    '<label>模型名</label>' +
-    '<input id="cfg-model" placeholder="deepseek-chat">' +
-    '<div class="save-row"><button id="cfg-save">保存</button></div>';
-  box.appendChild(setup);
-  $("cfg-base").value = aiCfg.base;
-  $("cfg-key").value = aiCfg.key;
-  $("cfg-model").value = aiCfg.model;
-  $("cfg-save").onclick = function () {
-    aiCfg.base = $("cfg-base").value.trim();
-    aiCfg.key = $("cfg-key").value.trim();
-    aiCfg.model = $("cfg-model").value.trim();
-    aiSaveCfg().then(function () {
-      box.innerHTML = "";
-      $("ai-state").textContent = aiCfg.base ? "就绪" : "未配置";
-      // 回一句实际请求端点：用户填裸域名也能立刻看出补成了什么，省一轮 404 排查
-      aiMsgEl("assistant", aiCfg.base
-        ? ("配置已保存。请求端点：" + normalizeBaseUrl(aiCfg.base) + "。在左边写笔记，有需要随时问我。")
-        : "配置已保存。在左边写笔记，有需要随时问我。");
-    });
-  };
+  var card = document.createElement("div");
+  card.className = "ai-greet off";
+  var sub = state === "missing"
+    ? "没找到随包 cjh（vendor/cjh/bin/）。确认打包时把对应平台的二进制带上了，然后点「重新连接」。"
+    : "cjh 没起来或连不上。点「重新连接」再试一次；启动细节在应用日志（搜索 [cjnote] 前缀）。";
+  card.innerHTML =
+    '<div class="g-ico">⚠</div>' +
+    '<div class="g-title">AI 后端未就绪</div>' +
+    '<div class="g-sub"></div>' +
+    '<div class="g-chips"><button>重新连接</button></div>';
+  card.querySelector(".g-sub").textContent = sub;
+  box.appendChild(card);
+  card.querySelector(".g-chips button").onclick = function () { cjhBoot(true); };
 }
-function aiSaveCfg() {
-  return invoke("store:set", { key: "ai.config", value: JSON.stringify(aiCfg) }).catch(function (e) {
-    report("SELFCHECK FAIL cfg save: " + e);
+// 会话 id 落 store：重启后 resume_session 接着聊（聊天记录在 cjh 侧，页面不镜像）
+function saveCjhSession(id) {
+  cjh.session = id || "";
+  invoke("store:set", { key: "ai.cjhsession", value: cjh.session }).catch(function (e) {
+    report("STORE-WARN 记不住 cjh 会话: " + e);
   });
 }
-function aiLoadCfg() {
-  // 探针配置优先（CJNOTE_PROBE_AI 注入的 window.__CJNOTE_AI_CFG__）：无人值守验证管道用
-  if (window.__CJNOTE_AI_CFG__ && window.__CJNOTE_AI_CFG__.base) {
-    aiCfg = { base: window.__CJNOTE_AI_CFG__.base, key: window.__CJNOTE_AI_CFG__.key || "probe", model: window.__CJNOTE_AI_CFG__.model || "mock" };
-    return Promise.resolve(aiCfg);
+function loadCjhSession() {
+  return invoke("store:get", { key: "ai.cjhsession" }).then(function (v) {
+    if (typeof v === "string" && v) { cjh.session = v; }
+  }).catch(function () {});
+}
+// 本轮收尾：把累积文本落进气泡（cjh 的 done / error / cancelled 都走这里）
+function cjhFinishTurn(errText, stopped) {
+  var t = aiTurn;
+  aiTurn = null;
+  // 未决审批卡就地收口：回合都结束了，按钮留着只会让人以为还能答
+  if (curApproval) { settleApproval("回合已结束（未回执，cjh 按「拒绝」收场）"); }
+  aiStreaming = false;
+  $("ai-send").textContent = "发送";
+  $("ai-send").disabled = false;
+  if (t && t.kind === "l2") { l2Finish(t.acc, errText, stopped); return; }
+  var full = t ? t.acc : "";
+  if (errText) { full = (full ? full + "\n\n" : "") + errText; }
+  if (stopped) { full = (full ? full + "\n\n" : "") + "（已停止生成）"; }
+  if (!full) { full = "（空回复）"; }
+  if (!t || !t.body) {
+    // 一个 delta / tool 帧都没有就收口（空回复、或只回了个 done）时，此前页面会什么都不画：
+    // 只剩用户那条消息，看着像「发出去了没反应」。这里补一个气泡把结论显示出来。
+    t = { body: aiMsgEl("assistant", "", true), acc: full };
   }
-  return invoke("store:get", { key: "ai.config" }).then(function (v) {
-    // 同上：store:get 给裸值（字符串或 JSON null），键不存在时是 null
-    if (typeof v === "string" && v) {
-      try {
-        var j = JSON.parse(v);
-        if (j && j.base) { aiCfg = { base: j.base || "", key: j.key || "", model: j.model || "" }; }
-      } catch (e) {}
+  aiSetBody(t.body, full);
+  if (errText) { aiSetState("出错", "bad"); } else { aiSetState("就绪", "ok"); }
+  // 自检钩子：无人值守管道靠它知道「这一轮真收尾了」（不挂在正常路径上，没设就是空操作）
+  if (typeof window.__cjnoteAiDone === "function") {
+    var cb = window.__cjnoteAiDone;
+    window.__cjnoteAiDone = null;
+    cb(full, errText || "");
+  }
+}
+// 工具活动的单行渲染（cjh 的 tool_start / tool_result）：挂在 AI 气泡下方，不混进正文
+function cjhRenderTools() {
+  if (!aiTurn || !aiTurn.body) { return; }
+  var host = aiTurn.body;
+  var el = host.querySelector(".ai-tools");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "ai-tools";
+    host.appendChild(el);
+  }
+  var s = "";
+  for (var i = 0; i < aiTurn.tools.length; i++) {
+    var t = aiTurn.tools[i];
+    var mark = t.status === "running" ? "⟳" : (t.status === "error" ? "✗" : (t.status === "stopped" ? "⏹" : "✓"));
+    s += mark + " " + t.name + "　";
+  }
+  el.textContent = s;
+}
+// cjh 的 error 帧带 code（旧服务端可能没有）：按 code 给能照着做的话，不把内部词甩给用户
+function cjhErrText(m) {
+  var code = m.code || "internal";
+  var t = "**[cjh " + code + "]** " + (m.message || "unknown");
+  if (code === "model_unavailable") {
+    t += "\n\ncjh 侧建不出所选模型：多半是模型名或 base_url 不对——在 cjh 配置里换回可用的服务商再发一次。";
+  } else if (code === "provider_error") {
+    t += "\n\n上游服务商报错（网络 / Key / 限流都可能），可以重试。";
+  } else if (code === "approval_timeout") {
+    t += "\n\n危险操作审批超时，按「拒绝」收场——回合已继续。";
+  }
+  if (m.retryable === true) { t += "\n（服务端标了可重试）"; }
+  return t;
+}
+// ── 危险操作审批 ──
+// cjh 侧**阻塞**在这条回执上（默认 5 分钟），超时 / 断连一律按「拒绝」收场并让回合继续。
+// 所以这里必须给一张真能点的卡：只有一行说明、没有入口，用户就只能干等超时。
+//   {"type":"approval_response","request_id":…,"approved":bool}
+function settleApproval(state) {
+  if (!curApproval) { return; }
+  var a = curApproval;
+  curApproval = null;
+  if (a.timer) { clearInterval(a.timer); a.timer = null; }
+  a.el.classList.add("decided");
+  a.stateEl.textContent = state;
+  a.ok.disabled = true;
+  a.no.disabled = true;
+}
+function sendApproval(rid, approved) {
+  if (!curApproval || curApproval.rid !== rid) { return; }   // 已决 / 已换一轮：不重发
+  var tool = curApproval.tool;
+  settleApproval(approved ? "已批准" : "已拒绝");
+  report("CJH approval_response request_id=" + rid + " approved=" + (approved === true ? "true" : "false"));
+  cjhWsSend({ type: "approval_response", request_id: rid, approved: approved }).catch(function (e) {
+    report("CJH-WARN 审批回执发送失败: " + (e && e.message ? e.message : e));
+  });
+  // 卡片是 DOM、刷新即失：把结论留进聊天记录，刷新后仍看得见这轮批过什么
+  aiMsgEl("assistant", "**[审批]** 工具 `" + tool + "`：" + (approved ? "已批准" : "已拒绝"));
+}
+function appendApprovalCard(m) {
+  var rid = m.request_id || "";
+  var tool = m.tool || "?";
+  var waitS = Math.round((m.expires_in_ms || 0) / 1000);
+  var box = $("ai-msgs");
+  var greet = box.querySelector(".ai-greet");
+  if (greet) { box.removeChild(greet); }
+  var el = document.createElement("div");
+  el.className = "approval";
+  var head = document.createElement("div");
+  head.className = "ahead";
+  head.textContent = "⚠ 危险操作待批准：" + tool;
+  var time = document.createElement("span");
+  time.className = "atime";
+  head.appendChild(time);
+  el.appendChild(head);
+  if (m.reason) {
+    var rs = document.createElement("div");
+    rs.className = "areason";
+    rs.textContent = "命中规则：" + m.reason;
+    el.appendChild(rs);
+  }
+  if (m.args !== undefined && m.args !== null) {
+    var ar = document.createElement("pre");
+    ar.className = "aargs";
+    ar.textContent = (typeof m.args === "string") ? m.args : JSON.stringify(m.args, null, 2);
+    el.appendChild(ar);
+  }
+  var btns = document.createElement("div");
+  btns.className = "abtns";
+  var okb = document.createElement("button");
+  okb.className = "abtn ok";
+  okb.textContent = "批准";
+  var nob = document.createElement("button");
+  nob.className = "abtn no";
+  nob.textContent = "拒绝";
+  btns.appendChild(okb);
+  btns.appendChild(nob);
+  el.appendChild(btns);
+  var state = document.createElement("div");
+  state.className = "areason";
+  el.appendChild(state);
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  var a = { rid: rid, tool: tool, el: el, stateEl: state, ok: okb, no: nob, timer: null };
+  curApproval = a;
+  okb.onclick = function () { sendApproval(rid, true); };
+  nob.onclick = function () { sendApproval(rid, false); };
+  // 倒计时与 cjh 的 expires_in_ms 同步：归零就地标超时（cjh 那边按「拒绝」收场，回合继续）
+  if (waitS > 0) {
+    var left = waitS;
+    var tick = function () {
+      if (left <= 0) {
+        if (a.timer) { clearInterval(a.timer); a.timer = null; }
+        if (curApproval === a) { settleApproval("已超时（cjh 按「拒绝」收场，回合继续）"); }
+        return;
+      }
+      time.textContent = left + " 秒后按「拒绝」收场";
+      left -= 1;
+    };
+    tick();
+    a.timer = setInterval(tick, 1000);
+  } else {
+    time.textContent = "等待回执中";
+  }
+  report("CJH approval_request tool=" + tool + " request_id=" + rid + " expires_in_ms=" + (m.expires_in_ms || 0));
+  return el;
+}
+// ── 帧分发：delta / tool_start / tool_result / done / error / cancelled / approval_request ──
+function handleCjhFrame(m) {
+  var type = m.type || "";
+  if (type === "delta") {
+    if (!aiTurn) { aiTurn = { kind: "chat", body: aiMsgEl("assistant", "", true), acc: "", tools: [] }; }
+    aiTurn.acc += m.text || "";
+    if (aiTurn.kind === "l2") { l2Stream(aiTurn.acc); }
+    else if (aiTurn.body) { aiSetBody(aiTurn.body, aiTurn.acc); }
+  } else if (type === "tool_start") {
+    if (!aiTurn) { aiTurn = { kind: "chat", body: aiMsgEl("assistant", "", true), acc: "", tools: [] }; }
+    aiTurn.tools.push({ name: m.name || "tool", status: "running" });
+    cjhRenderTools();
+  } else if (type === "tool_result") {
+    if (aiTurn) {
+      var hit = null;
+      for (var i = aiTurn.tools.length - 1; i >= 0; i--) {
+        if (aiTurn.tools[i].name === (m.name || "tool") && aiTurn.tools[i].status === "running") { hit = aiTurn.tools[i]; break; }
+      }
+      if (hit) { hit.status = m.is_error ? "error" : "done"; }
+      else { aiTurn.tools.push({ name: m.name || "tool", status: m.is_error ? "error" : "done" }); }
+      cjhRenderTools();
     }
-    return aiCfg;
-  }).catch(function () { return aiCfg; });
+  } else if (type === "done") {
+    var fr = m.finish_reason || "stop";
+    if (fr === "cancelled") { cjhFinishTurn("", true); }
+    else if (fr === "error") { cjhFinishTurn("（本回合异常收尾：细节见上面的工具结果与 cjh 日志）"); }
+    else { cjhFinishTurn(""); }
+  } else if (type === "error") {
+    cjhFinishTurn(cjhErrText(m));
+  } else if (type === "cancelled") {
+    // 停止后 cjh 必回这一帧。页面点「停止」时已本地收口，这里通常只留痕；
+    // was_running=false 是**事实**（那一帧到达时没有在跑的回合），不是错误，别当失败报
+    if (aiTurn) { cjhFinishTurn("", true); }
+    report("CJH cancelled session=" + (m.session_id || "-") + " was_running=" + (m.was_running === true ? "true" : "false"));
+  } else if (type === "approval_request") {
+    appendApprovalCard(m);
+  } else if (type === "history_messages") {
+    // 帧里带 session_id：新建会话的第一轮之后 cjh 会开新会话，从这里把 id 接住
+    if (m.session_id && m.session_id !== cjh.session) { saveCjhSession(m.session_id); }
+  } else if (m.session_id && m.session_id !== cjh.session) {
+    // 其它帧也可能捎来 session_id：一律接住，省得重连后另起一个会话
+    saveCjhSession(m.session_id);
+  }
+}
+// WS 事件挂载（启动时调一次）：帧与连接状态都从桥上进来
+function initCjh() {
+  bridge.listen("ws:frame", function (p) {
+    var m = null;
+    if (typeof p === "string") {
+      try { m = JSON.parse(p); } catch (e) { return; }
+    } else if (p && typeof p === "object") {
+      // 插件把 cjh 的帧**原样透传**（就是帧对象本身），所以先认 type。
+      // 不能先探 p.text：delta 帧自带 text 字段，按「包装体」去 JSON.parse 会抛异常，
+      // 帧被整条吞掉——表现是页面一直等到 done，然后显示「空回复」。
+      if (typeof p.type === "string") {
+        m = p;
+      } else if (typeof p.text === "string") {
+        try { m = JSON.parse(p.text); } catch (e) { return; }
+      } else if (typeof p.data === "string") {
+        try { m = JSON.parse(p.data); } catch (e) { return; }
+      }
+    }
+    if (!m) { return; }
+    try { handleCjhFrame(m); } catch (e) { report("CJH-WARN 帧处理出错: " + (e && e.message ? e.message : e)); }
+  });
+  bridge.listen("ws:state", function (p) {
+    var st = p && p.state ? p.state : "";
+    if (st === "closed") {
+      cjh.up = false;
+      updateAiCfgTip();
+      aiSetState("已断开", "bad");
+      if (aiTurn) { cjhFinishTurn("（连接已断开——回复可能不完整）"); }
+    }
+  });
+  return loadCjhSession().then(function () { return cjhBoot(true); });
 }
 
 // ── 笔记列表（M2：走自研 NoteStore，note:list/open/save/create/delete） ──
+var LAST_KEY = "last-open";  // store 里记最近打开的笔记，重启还在（对齐 markdown-notes）
+function rememberLast(name) {
+  if (!name) { return; }
+  invoke("store:set", { key: LAST_KEY, value: name }).catch(function (e) {
+    report("STORE-WARN 记不住 last-open: " + e);
+  });
+}
+
+// ── 左侧单列表：库内笔记 + Ctrl+O 打开的库外文件（形态对齐 markdown-notes 示例）。
+//    外部文件条目直接进同一个列表，不再单开「最近打开」区块（用户实测反馈：两段式里
+//    同一文件出现两行、很乱）；显示只给文件名、完整路径放 title 悬停（长路径不好看）；
+//    markdown-notes 实测踩过：必须按 path 去重再入列，否则重复行、点重复行还会拼出
+//    notes/notes/x.md。这里库内条目是裸名、外部条目是完整路径，天然不撞，外部按 path 去重 ──
+var RECENT_KEY = "recent.docs";
+var extFiles = [];       // 外部文件条目，最近在前，最多 8 条：[{path, label, ts}]
+var extLoaded = false;   // 迟到应答护栏：本地已先改动就忽略迟到的 store:get 回复（自检实测竞态）
+function persistExt() {
+  extLoaded = true;
+  invoke("store:set", { key: RECENT_KEY, value: JSON.stringify(extFiles) }).catch(function () {});
+}
+function addExtFile(p, label) {
+  for (var i = 0; i < extFiles.length; i++) { if (extFiles[i].path === p) { return; } }
+  extFiles.unshift({ path: p, label: label || p, ts: Date.now() });
+  if (extFiles.length > 8) { extFiles.length = 8; }
+  renderList();
+  persistExt();
+}
+function removeExtFile(p) {
+  var n = extFiles.length;
+  extFiles = extFiles.filter(function (d) { return d.path !== p; });
+  if (extFiles.length !== n) { renderList(); persistExt(); }
+}
+function loadExtFiles() {
+  invoke("store:get", { key: RECENT_KEY }).then(function (v) {
+    if (!extLoaded) {
+      if (typeof v === "string" && v) {
+        try {
+          var arr = JSON.parse(v);
+          if (Array.isArray(arr)) {
+            extFiles = arr.filter(function (d) { return d && typeof d.path === "string"; });
+          }
+        } catch (e) { extFiles = []; }
+      }
+      extLoaded = true;
+    }
+    renderList();
+  }).catch(function () { extLoaded = true; });
+}
+
+// ── 侧栏宽度拖动：侧栏右缘的 resizer 窄条（#sidebar 与 #work 之间）。
+//    宽度写进 --sidebar-w（160~480px 夹取），双击复位 220；偏好落 store（ui.sidebarw）。
+//    内容保护不变：.out/.note-item 有 ellipsis，#sidebar 有显式 min/max-width ──
+var SIDEBAR_W_KEY = "ui.sidebarw";
+var SIDEBAR_MIN = 160, SIDEBAR_MAX = 480, SIDEBAR_DEFAULT = 220;
+function clampSidebarW(w) {
+  return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(Number(w) || SIDEBAR_DEFAULT)));
+}
+function applySidebarW(w) {
+  document.documentElement.style.setProperty("--sidebar-w", clampSidebarW(w) + "px");
+}
+function persistSidebarW() {
+  invoke("store:set", { key: SIDEBAR_W_KEY, value: String(Math.round($("sidebar").getBoundingClientRect().width)) }).catch(function () {});
+}
+function initSidebarDrag() {
+  var rz = $("resizer");
+  if (!rz) { return; }
+  rz.addEventListener("mousedown", function (e) {
+    e.preventDefault();
+    var startX = e.clientX;
+    var startW = $("sidebar").getBoundingClientRect().width;
+    rz.classList.add("dragging");
+    document.body.classList.add("resizing");
+    function onMove(ev) { applySidebarW(startW + (ev.clientX - startX)); }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      rz.classList.remove("dragging");
+      document.body.classList.remove("resizing");
+      persistSidebarW();
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+  rz.addEventListener("dblclick", function () {
+    applySidebarW(SIDEBAR_DEFAULT);
+    invoke("store:set", { key: SIDEBAR_W_KEY, value: String(SIDEBAR_DEFAULT) }).catch(function () {});
+  });
+}
+function loadSidebarW() {
+  invoke("store:get", { key: SIDEBAR_W_KEY }).then(function (v) {
+    if (typeof v === "string" && v) {
+      var w = parseInt(v, 10);
+      if (!isNaN(w)) { applySidebarW(w); }
+    }
+  }).catch(function () {});
+}
 function refreshList() {
   return invoke("note:list", {}).then(function (r) {
     var items = (r && r.notes) ? r.notes : [];
     notes = [];
+    noteMtimes = {};
     for (var i = 0; i < items.length; i++) {
-      if (items[i] && items[i].name) { notes.push(items[i].name); }
+      if (items[i] && items[i].name) {
+        notes.push(items[i].name);
+        if (items[i].mtime) { noteMtimes[items[i].name] = items[i].mtime; }
+      }
     }
     renderList();
     return notes;
@@ -756,20 +1447,67 @@ function refreshList() {
 function renderList() {
   var box = $("note-list");
   box.innerHTML = "";
-  if (notes.length === 0) {
+  // 合并行：库内（裸名）+ 外部（完整路径），两类天然不重；排序跟随侧栏偏好。
+  // 修改时间模式比 ts：库内 = mtime，外部 = 打开时刻（刚打开的自然在最上）
+  var rows = [];
+  var i;
+  for (i = 0; i < extFiles.length; i++) {
+    rows.push({ ext: true, path: extFiles[i].path, label: extFiles[i].label, ts: extFiles[i].ts || 0 });
+  }
+  var list = sortedNotes();
+  for (i = 0; i < list.length; i++) {
+    rows.push({ ext: false, name: list[i], label: list[i], ts: mtimeTs(list[i]) });
+  }
+  if (sortBy === "name") {
+    rows.sort(function (a, b) { return String(a.label) < String(b.label) ? -1 : 1; });
+  } else {
+    rows.sort(function (a, b) { return b.ts - a.ts; });
+  }
+  if (rows.length === 0) {
     var tip = document.createElement("div");
-    tip.className = "note-item"; tip.textContent = "（notes/ 目录为空）";
+    tip.className = "note-item"; tip.textContent = "（暂无笔记或外部文件）";
     box.appendChild(tip); return;
   }
-  for (var i = 0; i < notes.length; i++) {
-    (function (name) {
+  for (i = 0; i < rows.length; i++) {
+    (function (row) {
       var el = document.createElement("div");
-      el.className = "note-item" + (name === current ? " active" : "");
-      el.textContent = name;
-      el.onclick = function () { openNote(name); };
+      var isActive = row.ext ? (row.path === externalPath) : (row.name === current);
+      el.className = "note-item" + (isActive ? " active" : "");
+      el.textContent = row.label;
+      el.title = row.ext ? row.path
+        : (noteMtimes[row.name] ? "修改于 " + String(noteMtimes[row.name]).replace("T", " ") : "");
+      el.onclick = function () {
+        if (row.ext) {
+          // 外部文件：点击重开；读不到（文件被删/移动）就把条目清掉
+          openExternalPath(row.path).then(function (r) {
+            if (!r) { removeExtFile(row.path); }
+          });
+          return;
+        }
+        openNote(row.name);
+      };
       box.appendChild(el);
-    })(notes[i]);
+    })(rows[i]);
   }
+}
+// mtime ISO 串 → 纪元毫秒；长小数秒实测会绊 WebKitGTK 的解析，先剔掉；解析失败记 0（排最下）
+function mtimeTs(name) {
+  var s = noteMtimes[name];
+  if (!s) { return 0; }
+  var t = Date.parse(String(s).replace(/\.\d+/, ""));
+  return isNaN(t) ? 0 : t;
+}
+// 排序是纯函数：mtime 降序（最近动过的在最上），名称升序兜底
+function sortedNotes() {
+  var arr = notes.slice();
+  if (sortBy === "name") {
+    arr.sort(function (a, b) { return String(a) < String(b) ? -1 : 1; });
+  } else {
+    arr.sort(function (a, b) {
+      return (Date.parse(noteMtimes[b] || "") || 0) - (Date.parse(noteMtimes[a] || "") || 0);
+    });
+  }
+  return arr;
 }
 // ── 侧栏页签：笔记列表 / 大纲 ──
 var sideTab = "notes";
@@ -780,6 +1518,7 @@ function showSide(which) {
   $("tab-notes").className = "side-tab" + (sideTab === "notes" ? " active" : "");
   $("tab-outline").className = "side-tab" + (sideTab === "outline" ? " active" : "");
   $("btn-refresh").style.display = sideTab === "notes" ? "" : "none";
+  $("sortrow").style.display = sideTab === "notes" ? "" : "none";
   report("UI side " + sideTab);
   if (sideTab === "outline") { renderOutline(); }
 }
@@ -809,14 +1548,21 @@ function renderOutline() {
     return;
   }
   for (var i = 0; i < items.length; i++) {
-    (function (it) {
+    (function (it, idx) {
       var row = document.createElement("div");
       row.className = "out" + (it.level >= 3 ? " lv3" : (it.level === 2 ? " lv2" : ""));
       row.textContent = it.text;
-      row.title = "第 " + (it.line + 1) + " 行";
-      row.onclick = function () { jumpToLine(it.line); };
+      row.title = it.text + "（第 " + (it.line + 1) + " 行）";  // 标题被 ellipsis 截断时，悬停可看全文
+      row.onclick = function () {
+        jumpToLine(it.line);
+        // 序号锁定：大纲与预览的标题一一对应（渲染器把围栏内的 # 当代码，两边都不算标题），
+        // 点击时按第 idx 个标题同步定位预览——分屏/预览模式下用户盯着预览，
+        // 只滚编辑器的话看不到任何动静（markdown-notes 同款坑）
+        var hs = $("preview").querySelectorAll("h1, h2, h3");
+        if (idx < hs.length) { hs[idx].scrollIntoView({ block: "start", behavior: "smooth" }); }
+      };
       box.appendChild(row);
-    })(items[i]);
+    })(items[i], i);
   }
 }
 function jumpToLine(line) {
@@ -836,15 +1582,23 @@ function jumpToLine(line) {
   var lh = parseFloat(getComputedStyle(ta).lineHeight) || 20;
   ta.scrollTop = Math.max(0, line * lh - ta.clientHeight / 2);
 }
+// 打开序号守卫：并发 openNote 时只有最新一次落页。启动「恢复上次打开」与用户/自检的
+// 快速点击是并发竞态（实测：恢复晚到覆盖 current，自检探针存进了错误笔记）——旧请求丢弃
+var openSeq = 0;
 function openNote(name) {
+  var seq = ++openSeq;
   return invoke("note:open", { name: name }).then(function (r) {
+    if (seq !== openSeq) { report("UI open stale " + name + " skipped"); return r; }
     var text = (r && typeof r.body === "string") ? r.body : "";
     current = (r && r.name) ? r.name : name;
+    externalPath = "";  // 打开库内笔记即当前文档：清外部草稿标记，否则列表里外部行与库内行同时高亮
     dirty = false;
     $("doc-title").textContent = current;
     setDoc(text);
     renderList();
+    rememberLast(current);
     report("SELFCHECK PASS open " + current + " bytes=" + text.length);
+    return r;
   }).catch(function (e) { report("SELFCHECK FAIL read " + name + ": " + e); });
 }
 function saveCurrent() {
@@ -864,6 +1618,7 @@ function newNote() {
     var name = (r && r.name) ? r.name : "";
     if (!name) { report("SELFCHECK FAIL create: no name"); return; }
     current = name;
+    externalPath = "";  // 新建后当前文档就是库内新笔记：不先清外部标记，saveCurrent 会误走外部落库
     $("doc-title").textContent = name;
     setDoc("");
     return saveCurrent().then(refreshList).then(function () { openNote(name); });
@@ -881,16 +1636,24 @@ function openViaDialog() {
   invoke("dialog:open", { title: "打开 Markdown 文件", filter: "Markdown|*.md|文本|*.txt|全部文件|*.*" })
     .then(function (picked) {
       if (!picked || typeof picked !== "string") { report("UI open canceled"); return null; }
-      return invoke("note:readExternal", { path: picked }).then(function (r) {
-        if (!r || typeof r.body !== "string") { return; }
-        externalPath = String(r.path || picked);
-        current = "";
-        $("doc-title").textContent = String(r.name || "外部文件") + "（外部）";
-        setDoc(r.body);
-        report("UI opened external " + externalPath);
-      });
+      return openExternalPath(picked);
     })
     .catch(function (e) { report("UI open failed: " + (e && e.message ? e.message : e)); });
+}
+
+// 两个入口共用：Ctrl+O 对话框 + 列表行点击。成功即把条目并进左侧列表；读失败回 null
+function openExternalPath(p) {
+  return invoke("note:readExternal", { path: p }).then(function (r) {
+    if (!r || typeof r.body !== "string") { return null; }
+    externalPath = String(r.path || p);
+    current = "";
+    var label = String(r.name || externalPath.replace(/^.*[\/\\]/, ""));
+    $("doc-title").textContent = label + "（外部）";
+    setDoc(r.body);
+    addExtFile(externalPath, label);
+    report("UI opened external " + externalPath);
+    return r;
+  });
 }
 
 function saveExternalDraft() {
@@ -899,11 +1662,13 @@ function saveExternalDraft() {
     var name = (r && r.name) ? String(r.name) : "";
     if (!name) { throw new Error("note:create 未返回笔记名"); }
     return invoke("note:save", { name: name, body: getDoc() }).then(function (r2) {
+      var gonePath = externalPath;
       externalPath = "";
       current = (r2 && r2.name) ? String(r2.name) : name;
       $("doc-title").textContent = current;
       dirty = false;
       updateDocMeta();
+      removeExtFile(gonePath);  // 外部条目已落库，库内条目本来就在列表里
       report("SELFCHECK PASS save external as " + current);
       return refreshList();
     });
@@ -1004,6 +1769,14 @@ function loadUiPrefs() {
   invoke("store:get", { key: THEME_KEY }).then(function (v) {
     if (typeof v === "string") { applyAppTheme(v, false); }
   }).catch(function () {});
+  invoke("store:get", { key: "ui.sortby" }).then(function (v) {
+    if (typeof v === "string" && (v === "mtime" || v === "name")) {
+      sortBy = v;
+      var sel = $("sortby");
+      if (sel) { sel.value = v; }
+      renderList();
+    }
+  }).catch(function () {});
 }
 
 // ── 界面主题（默认跟随系统，可手动覆盖）──
@@ -1094,6 +1867,8 @@ function onMenuClick(ev) {
   else if (id === "file.open") { openViaDialog(); }
   else if (id === "file.quickOpen") { showQuickOpen(true); }
   else if (id === "file.save") { saveCurrent(); }
+  else if (id === "file.rename") { renameCurrent(); }
+  else if (id === "file.delete") { deleteCurrent(); }
   else if (id === "file.refresh") { refreshList(); }
   else if (id === "view.mode.edit") { applyViewMode("edit"); }
   else if (id === "view.mode.split") { applyViewMode("split"); }
@@ -1103,6 +1878,116 @@ function onMenuClick(ev) {
   // file.quit 不到这里：退出在仓颉侧应用层直接收口
 }
 
+// ── 通用小弹窗：重命名（带输入框）/ 删除确认（纯文本）。一次性的确认不该为它引宿主对话框 ──
+var modalDone = null;
+function showModal(opts) {
+  $("modal-title").textContent = opts.title;
+  var input = $("modal-input");
+  var hasInput = (typeof opts.value === "string");
+  input.style.display = hasInput ? "" : "none";
+  if (hasInput) { input.value = opts.value; }
+  var textEl = $("modal-text");
+  textEl.style.display = opts.text ? "" : "none";
+  textEl.textContent = opts.text || "";
+  var okBtn = $("modal-ok");
+  okBtn.textContent = opts.okText || "确定";
+  okBtn.style.background = opts.danger ? "#c0524e" : "var(--accent)";
+  modalDone = opts.onOk || null;
+  $("modal").classList.add("on");
+  if (hasInput) {
+    // 选中文本时去掉后缀：.md 是命名契约的一部分，重命名不该动它
+    var dot = input.value.lastIndexOf(".");
+    setTimeout(function () {
+      input.focus();
+      input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
+    }, 0);
+  }
+}
+function closeModal() {
+  $("modal").classList.remove("on");
+  modalDone = null;
+}
+function modalSubmit() {
+  var input = $("modal-input");
+  var value = (input.style.display !== "none") ? input.value.trim() : undefined;
+  var fn = modalDone;
+  closeModal();
+  if (fn) { fn(value); }
+}
+// ── 重命名/删除：入口是原生「文件」菜单，作用于当前笔记；外部文件在库里没目标，弹窗拒 ──
+function renameCurrent() {
+  if (externalPath || !current) {
+    showModal({ title: "无法重命名", text: "当前文档是库外外部文件，没有重命名目标。先保存进库（Ctrl+S）再试。", okText: "知道了" });
+    return;
+  }
+  var from = current;
+  showModal({
+    title: "重命名：" + from,
+    value: from,
+    okText: "重命名",
+    onOk: function (newName) {
+      if (!newName || newName === from) { return; }
+      invoke("note:rename", { name: from, newName: newName }).then(function (r) {
+        if (r && r.ok && r.name) {
+          noteMtimes[r.name] = noteMtimes[from] || "";  // 真 rename 保留 mtime，值跟着名字走
+          delete noteMtimes[from];
+          current = r.name;
+          $("doc-title").textContent = current;
+          rememberLast(current);
+          renderList();
+          updateDocMeta();
+          report("SELFCHECK PASS rename " + from + " -> " + current);
+        }
+      }).catch(function (e) {
+        report("SELFCHECK FAIL rename: " + (e && e.message ? e.message : e));
+      });
+    }
+  });
+}
+function deleteCurrent() {
+  if (externalPath || !current) {
+    showModal({ title: "无法删除", text: "当前文档是库外外部文件，磁盘上的原文件不受影响。", okText: "知道了" });
+    return;
+  }
+  var gone = current;
+  showModal({
+    title: "删除笔记",
+    text: "删除「" + gone + "」？此操作不可恢复。",
+    okText: "删除",
+    danger: true,
+    onOk: function () {
+      invoke("note:delete", { name: gone }).then(function () {
+        delete noteMtimes[gone];
+        current = "";
+        $("doc-title").textContent = "（未打开）";
+        setDoc("");
+        return refreshList().then(function (list) {
+          if (list.length > 0) { return openNote(list[0]); }
+          report("SELFCHECK PASS delete " + gone);
+        });
+      }).catch(function (e) {
+        report("SELFCHECK FAIL delete: " + (e && e.message ? e.message : e));
+      });
+    }
+  });
+}
+
+// 自检辅助：列表行计数 / 按 title 找行（判「同文件只出现一行」与「外部条目进列表」）
+function countListRows(label) {
+  var rows = $("note-list").children, n = 0;
+  for (var k = 0; k < rows.length; k++) { if (rows[k].textContent === label) { n++; } }
+  return n;
+}
+function findListRow(title) {
+  var rows = $("note-list").children;
+  for (var k = 0; k < rows.length; k++) { if (rows[k].title === title) { return rows[k]; } }
+  return null;
+}
+function countActiveRows() {
+  var rows = $("note-list").children, n = 0;
+  for (var k = 0; k < rows.length; k++) { if (rows[k].className.indexOf("active") >= 0) { n++; } }
+  return n;
+}
 // ── 自检（CJNOTE_SELFCHECK=1 时跑一轮，全部经 report 回投 stderr） ──
 function selfCheck(env) {
   if (!env || !env.selfcheck) { return; }
@@ -1132,6 +2017,57 @@ function selfCheck(env) {
   ok(document.documentElement.className === "apptheme-system", "apptheme defaults to system");
   ok(bgLight !== bgDark, "light and dark palettes differ");
   applyAppTheme(themeBefore, false);
+  // tab 高亮配色回归：head 通用钮规则 (1,1,1) 曾盖过 .side-tab 非激活色 (1,1,0)，
+  // 非激活 tab 被染成 accent 蓝、高亮看起来「反了」——两个 tab 都不许是 accent 色
+  var accentProbe = document.createElement("span");
+  accentProbe.style.color = "var(--accent)";
+  document.body.appendChild(accentProbe);
+  var accentColor = getComputedStyle(accentProbe).color;
+  document.body.removeChild(accentProbe);
+  ok(getComputedStyle($("tab-notes")).color !== accentColor &&
+     getComputedStyle($("tab-outline")).color !== accentColor, "side tabs never painted accent");
+  // 醒目下划线：恰好一个 tab 有 accent 底线，且一定在激活的那个上（与当前激活态无关地断言）
+  var notesUnder = getComputedStyle($("tab-notes")).borderBottomColor === accentColor;
+  var outUnder = getComputedStyle($("tab-outline")).borderBottomColor === accentColor;
+  ok(notesUnder !== outUnder && notesUnder === ($("tab-notes").className.indexOf("active") >= 0),
+     "accent underline only on the active side tab");
+  // 侧栏宽度拖动：窄条必须是 col-resize；模拟拖动要真改变宽度、超限夹取、双击复位（偏好落盘在异步链验）
+  var rz = $("resizer");
+  ok(!!rz && getComputedStyle(rz).cursor === "col-resize", "sidebar resizer present with col-resize");
+  var rzBox = rz.getBoundingClientRect();
+  var rzX = rzBox.left + rzBox.width / 2;
+  var sbBefore = $("sidebar").getBoundingClientRect().width;
+  rz.dispatchEvent(new MouseEvent("mousedown", { clientX: rzX, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mousemove", { clientX: rzX + 60, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  ok(Math.abs($("sidebar").getBoundingClientRect().width - (sbBefore + 60)) <= 2,
+     "drag widens sidebar (was " + Math.round(sbBefore) + "px)");
+  rz.dispatchEvent(new MouseEvent("mousedown", { clientX: rzX, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mousemove", { clientX: rzX + 9999, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  ok($("sidebar").getBoundingClientRect().width <= 480.5, "sidebar width clamped at max");
+  rz.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  ok(Math.abs($("sidebar").getBoundingClientRect().width - 220) <= 1, "double click resets sidebar to 220px");
+  applySidebarW(220);
+  // AI 面板重做：状态胶囊带色点 + 配置入口（静态 DOM，同步可断言）
+  ok($("ai-state").querySelector("i") !== null, "AI state pill has colored dot");
+  ok($("ai-cfg-btn") !== null, "AI config button in header");
+  // ⚙ 必须点开一个真设置页：删掉直连配置后若只剩「无声重连」，用户会以为按钮坏了（实测反馈）
+  openAiSettings();
+  ok(aiSettingsOpen(), "gear switches ai panel to settings view");
+  ok(document.querySelector("#ai-settings-view #set-model") !== null,
+    "settings view has editable model field");
+  ok(document.querySelector("#ai-settings-view #set-proto") !== null,
+    "settings view has protocol selector");
+  ok(document.querySelector("#ai-settings-view #set-base") !== null,
+    "settings view has base url field");
+  aiView("chat");
+  ok(!aiSettingsOpen(), "back returns ai panel to chat view");
+  // 外部文件条目进单列表（形态对齐 markdown-notes）：加条目要出对应行、显示文件名、完整路径在 title
+  addExtFile("/selfcheck/probe-external.md", "probe-external.md");
+  var extRow = findListRow("/selfcheck/probe-external.md");
+  ok(!!extRow && extRow.textContent === "probe-external.md", "external file entry shows in single list");
+  removeExtFile("/selfcheck/probe-external.md");
   // 「关于」浮层（帮助菜单入口）：开要真可见、关要真收回，验完复原。
   // 判据必须带尺寸——只断言 display 的话，浮层被压成 0×0 也算过（实测踩过：inset 不生效）
   showAbout(true);
@@ -1141,15 +2077,13 @@ function selfCheck(env) {
     "about overlay opens covering viewport");
   showAbout(false);
   ok(getComputedStyle($("about-card")).display === "none", "about overlay closes");
-  // Base URL 归一化：三种写法必须落到同一个端点（用户不该背「必须写全 chat/completions」）
-  ok(normalizeBaseUrl("https://api.deepseek.com") === "https://api.deepseek.com/v1/chat/completions",
-    "base url bare host gets /v1/chat/completions");
-  ok(normalizeBaseUrl("https://api.deepseek.com/v1/") === "https://api.deepseek.com/v1/chat/completions",
-    "base url version tail gets chat/completions");
-  ok(normalizeBaseUrl("https://api.deepseek.com/v1/chat/completions") === "https://api.deepseek.com/v1/chat/completions",
-    "base url full endpoint kept as is");
-  ok(normalizeBaseUrl("  https://api.openai.com/v1/chat/completions/  ") === "https://api.openai.com/v1/chat/completions",
-    "base url trims spaces and trailing slash");
+  // cjh 引导卡：后端未就绪时必须给一个能点的「重新连接」，而不是只留一行说明
+  aiGreetOffline("missing");
+  ok(document.querySelector("#ai-msgs .ai-greet.off .g-chips button") !== null,
+    "cjh offline card offers a retry button");
+  aiGreet("写笔记时随时问我。");
+  ok(document.querySelectorAll("#ai-msgs .ai-greet .g-chips button").length === 3,
+    "ai empty state has three suggestion chips");
   // 侧栏大纲：围栏里的 # 不算标题、一条标题一行、点击要真跳到那一行（验完复原正文与页签）
   var mdBefore = getDoc();
   var sideBefore = sideTab;
@@ -1159,8 +2093,17 @@ function selfCheck(env) {
     "outline skips fenced headings");
   showSide("outline");
   ok($("outline").children.length === 3, "outline renders one row per heading");
+  ok($("outline").children[0].title.indexOf("一级") >= 0, "outline row title carries full heading");
   $("outline").children[2].onclick();
   ok(cm ? cm.getCursor().line === 7 : true, "outline click jumps to heading line");
+  // 长标题撑宽回归：flex 自动最小值坑——长 nowrap 标题曾把 #sidebar 撑过 220px（用户实测报过）。
+  // 判据量真实宽度：侧栏必须仍 ~220px，长标题行必须被裁在侧栏内
+  var longTxt = "超长标题"; for (var li = 0; li < 30; li++) { longTxt += "很长"; }
+  setDoc("# " + longTxt + "\n\n## 正常标题\n");
+  var sbW = $("sidebar").getBoundingClientRect().width;
+  var longRow = $("outline").children[0];
+  ok(sbW <= 225, "sidebar stays ~220px with long outline heading (was " + Math.round(sbW) + "px)");
+  ok(longRow.getBoundingClientRect().width <= sbW, "long heading row clipped inside sidebar");
   // 快速打开：过滤纯函数 + 浮层真能开合并盖住视口（本机 WebKitGTK 上 inset 失效过，量尺寸才算数）
   ok(filterNotes(["欢迎.md", "周报.md"], "周").join("|") === "周报.md", "quick open filters by name");
   ok(filterNotes(["a.md", "b.md"], "").length === 2, "quick open lists all on empty query");
@@ -1206,115 +2149,109 @@ function selfCheck(env) {
     // 开第一篇、写入、保存、重读——文件落盘闭环
     var target = list[0];
     if (target) {
-      openNote(target).then(function () {
-        var prev = getDoc();
+      openNote(target).then(function (r) {
+        // 基准取本次 open 返回的 body、落盘按名字显式存：不依赖编辑器 current——
+        // 启动「恢复上次打开」与本链并发，序号守卫可能跳过本次打开（恢复赢），current 还是空的
+        var prev = (r && typeof r.body === "string") ? r.body : "";
         setDoc(prev + "\n<!-- probe -->\n");
-        saveCurrent().then(function () {
+        invoke("note:save", { name: target, body: prev + "\n<!-- probe -->\n" }).then(function () {
           invoke("note:open", { name: target }).then(function (r) {
             var text = (r && typeof r.body === "string") ? r.body : "";
             ok(text.indexOf("<!-- probe -->") >= 0, "write-read roundtrip");
-            setDoc(prev); saveCurrent();
-            // AI 流式探针（CJNOTE_PROBE_AI 注入配置时跑）：发一句、收流、断言非空
-            // 只在端点是本地 mock 时跑：真实服务商地址下这几条必红（无 mock 就等不到 REF-OK），
-            // 那是「自检假红」，会把交付门禁弄失真（实测：用户填了真实 base 后自检掉到 passed=17 failed=2）
-            var mockLike = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(aiCfg.base || "");
-            if (aiCfg.base && mockLike && $("ai-state").textContent !== "未配置") {
-              $("ai-input").value = "ping";
+            setDoc(prev);
+            invoke("note:save", { name: target, body: prev }).catch(function (e) {
+              report("SELFCHECK FAIL restore save: " + e);
+            });
+            // 单列表：刚打开的笔记必须恰好一行（两段式里同一文件出现过两行，用户报「乱」）
+            ok(countListRows(target) === 1, "opened note appears exactly once in list");
+            // 侧栏宽度偏好落盘（同步段模拟过拖动，末态是双击复位后的 220）
+            invoke("store:get", { key: "ui.sidebarw" }).then(function (v) {
+              ok(v === "220", "sidebar width persisted to store");
+            });
+            // 消息区必须有一张引导卡：在线是三条建议、离线是「重新连接」，两种都算就绪表现
+            // （数量断言在前面的 aiGreet 用例里已精确验过，这里只看「有没有卡」）
+            ok(document.querySelector("#ai-msgs .ai-greet") !== null,
+               "AI panel shows a greet card");
+            // 高亮唯一：同一时刻只能有一行选中。模拟「外部文件 → 库内笔记」切换：
+            // openNote 若不清 externalPath，外部行与库内行会同时亮（用户实测报过）
+            addExtFile("/selfcheck/probe-external.md", "probe-external.md");
+            externalPath = "/selfcheck/probe-external.md";
+            openNote(target).then(function () {
+              ok(countActiveRows() === 1, "only one list row highlighted at a time");
+              removeExtFile("/selfcheck/probe-external.md");
+            });
+            // 设置页的配置通路（宿主代劳读写 ~/.cjh）：读取要回得出模型名、密钥只能是脱敏值；
+            // 保存走一次「写回原值」的受控调用——整条路径过一遍，但不改任何实际配置
+            invoke("cjh:config").then(function (c) {
+              c = c || {};
+              ok(typeof c.model === "string" && c.model.length > 0,
+                 "cjh:config returns model from settings.json");
+              ok((c.apiKey || "") === "" || (c.apiKey || "").indexOf("****") >= 0,
+                 "cjh:config masks api key");
+              var same = (typeof c.temperature === "number" && c.temperature > 0) ? c.temperature : 0.7;
+              return invoke("cjh:saveConfig", { temperature: same }).then(function (r) {
+                ok(!!r && r.ok === true, "cjh:saveConfig writes config file");
+                ok(!!r && (r.wrote || []).indexOf("temperature") >= 0,
+                   "cjh:saveConfig reports written keys");
+              });
+            }).catch(function (e) {
+              ok(false, "cjh:config failed: " + (e && e.message ? e.message : e));
+            });
+            // AI 探针（真实 cjh，不再注入 mock）：连上才跑；连不上就 SKIP 并如实记一行，
+            // 不把「环境里没有后端」算成失败（假红会让交付门禁失真，实测踩过）
+            if (cjh.up) {
+              window.__cjnoteAiDone = function (text, err) {
+                // 「（空回复）」是收尾兜底文案，不是回复：不排除它，delta 帧全被吞掉的 bug
+                // 也能让这条断言变绿（实测踩过——页面上明明什么都没收到）
+                ok(!err && typeof text === "string" && text.length > 0 &&
+                   text.indexOf("（空回复）") < 0, "cjh chat reply non-empty");
+                // 回复渲染 markdown（与预览同源）：正文是结构化元素而非裸文本
+                var lastA = document.querySelectorAll("#ai-msgs .msg.assistant .body");
+                ok(lastA.length >= 1 && lastA[lastA.length - 1].childNodes.length >= 1,
+                   "AI reply body is rendered markdown");
+                renameProbe();
+              };
+              $("ai-input").value = "自检：只回复 OK 两个字";
               aiSend();
-              var tries = 0;
-              (function waitAi() {
-                tries++;
-                var done = aiHistory.length >= 2 && aiHistory[aiHistory.length - 1].role === "assistant" &&
-                  (aiHistory[aiHistory.length - 1].content.length > 0);
-                if (done) {
-                  var reply = aiHistory[aiHistory.length - 1].content;
-                  ok(reply.indexOf("**[错误]**") !== 0 && reply.length > 0, "ai stream reply non-empty");
-                  // M4 断言：勾上「引用当前笔记」再发一轮，mock 校验 system 里带当前笔记全文则回显 REF-OK
-                  var ref = $("ai-ref-note");
-                  if (ref && current) {
-                    ref.checked = true;
-                    $("ai-input").value = "summarize";
-                    aiSend();
-                    var t2 = 0;
-                    (function waitRef() {
-                      t2++;
-                      if (aiHistory.length >= 4 && aiHistory[3].role === "assistant" && aiHistory[3].content.length > 0) {
-                        var r2 = aiHistory[3].content;
-                        ok(r2.indexOf("REF-OK") === 0, "note context in request body");
-                        // L2 断言：选区 → 改写 → diff → 接受后文档内容更新（mock 回显 REWRITE-OK 标记）
-                        if (cm) {
-                          ref.checked = false;
-                          var before = cm.getValue();
-                          var markFrom = before.indexOf("本地优先的 AI 笔记");
-                          if (markFrom >= 0) {
-                            cm.setSelection({ line: 2, ch: 0 }, { line: 2, ch: before.split("\n")[2].length });
-                            l2.selText = cm.getSelection();
-                            l2.from = cm.getCursor("from");
-                            l2.to = cm.getCursor("to");
-                            l2Run("rewrite");
-                            var t3 = 0;
-                            (function waitL2() {
-                              t3++;
-                              if (l2.pending && l2.pending.indexOf("REWRITE-OK") === 0) {
-                                l2Accept();
-                                ok(cm.getValue().indexOf("REWRITE-OK") >= 0, "l2 accept updates doc");
-                                // L3 断言：问笔记库模式 → note:search 命中片段进 system（mock 回显 SEARCH-OK）
-                                var lib = $("ai-lib-note");
-                                if (lib) {
-                                  lib.checked = true;
-                                  $("ai-input").value = "欢迎";
-                                  aiSend();
-                                  var t4 = 0;
-                                  (function waitLib() {
-                                    t4++;
-                                    var last = aiHistory[aiHistory.length - 1];
-                                    if (aiHistory.length >= 6 && last.role === "assistant" && last.content.length > 0) {
-                                      ok(last.content.indexOf("SEARCH-OK") === 0, "note library search in request body");
-                                      lib.checked = false;
-                                      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
-                                    } else if (t4 > 60) {
-                                      ok(false, "note library reply timeout");
-                                      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
-                                    } else {
-                                      setTimeout(waitLib, 100);
-                                    }
-                                  })();
-                                } else {
-                                  report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
-                                }
-                              } else if (t3 > 60) {
-                                ok(false, "l2 diff timeout");
-                                report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
-                              } else {
-                                setTimeout(waitL2, 100);
-                              }
-                            })();
-                          } else {
-                            ok(false, "l2 anchor line not found");
-                            report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
-                          }
-                        } else {
-                          report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
-                        }
-                      } else if (t2 > 60) {
-                        ok(false, "note context reply timeout");
-                        report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
-                      } else {
-                        setTimeout(waitRef, 100);
-                      }
-                    })();
-                  } else {
-                    report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
-                  }
-                } else if (tries > 60) {
-                  ok(false, "ai stream reply timeout");
-                  report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
-                } else {
-                  setTimeout(waitAi, 100);
+              setTimeout(function () {
+                if (typeof window.__cjnoteAiDone === "function") {
+                  window.__cjnoteAiDone = null;
+                  ok(false, "cjh chat reply timeout");
+                  renameProbe();
                 }
-              })();
+              }, 90000);
             } else {
-              report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+              report("SELFCHECK SKIP cjh chat: 未连接 (state=" + cjh.state + ")");
+              renameProbe();
+            }
+            // 重命名闭环 + mtime：造临时笔记 → 改名 → 旧名消失/新名出现 → 删除。
+            // std.fs.rename 是真重命名（保留 mtime）
+            function renameProbe() {
+              invoke("note:create", { title: "自检-重命名" }).then(function (cr) {
+                var tmpName = (cr && cr.name) ? cr.name : "";
+                if (!tmpName) { ok(false, "rename probe create"); report("SELFCHECK DONE passed=" + pass + " failed=" + fail); return; }
+                var renamed = tmpName.replace(".md", "-改名.md");
+                return invoke("note:rename", { name: tmpName, newName: renamed }).then(function (rr) {
+                  ok(!!(rr && rr.ok && rr.name === renamed), "rename ok");
+                  return invoke("note:list", {}).then(function (lr) {
+                    var nms = (lr && lr.notes) ? lr.notes : [];
+                    var hasOld = false, hasNew = false;
+                    for (var k = 0; k < nms.length; k++) {
+                      if (nms[k].name === tmpName) { hasOld = true; }
+                      if (nms[k].name === renamed) { hasNew = true; }
+                    }
+                    ok(!hasOld && hasNew, "rename swaps old and new in the list");
+                    var first = nms[0];
+                    ok(!!(first && typeof first.mtime === "string" && Date.parse(first.mtime) > 0), "note:list returns mtime");
+                    return invoke("note:delete", { name: renamed }).then(function () {
+                      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                    });
+                  });
+                });
+              }).catch(function (e) {
+                ok(false, "rename probe: " + e);
+                report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+              });
             }
           }).catch(function (e) { ok(false, "roundtrip read: " + e); report("SELFCHECK DONE passed=" + pass + " failed=" + fail); });
         });
@@ -1400,8 +2337,12 @@ function l2Apply(text) {
 }
 function l2Run(act) {
   if (l2.streaming || !l2.selText) { return; }
-  if (!aiCfg.base || !aiCfg.model) {
-    aiShowSetup("先配置 AI 服务，才能使用选区动作");
+  if (!cjh.up) {
+    // 选区动作同样经 cjh：没连上就没有 AI，先重连一次并说清楚（不静默失败）
+    report("CJH-WARN 选区动作前未连接，先重连");
+    cjhBoot(true).then(function () {
+      if (cjh.up) { aiSetState("已连上，再点一次", "ok"); }
+    });
     return;
   }
   l2HideBar();
@@ -1409,53 +2350,52 @@ function l2Run(act) {
   l2.act = act;
   l2.acc = "";
   var actName = { rewrite: "改写", continue: "续写", translate: "翻译" }[act] || act;
-  $("ai-state").textContent = actName + "中…";
+  aiSetState(actName + "中…", "busy");
   var bar = $("diff-bar");
   bar.style.display = "flex";
   $("diff-title").textContent = "AI " + actName + "中…";
-  // 监听先于 invoke（M3 同款）
-  var off = bridge.listen("http:chunk", function (p) {
-    if (p.done) { return; }
-    l2.acc += p.delta || "";
-    $("diff-title").textContent = "AI " + actName + "：" + sseToText(l2.acc).slice(0, 80);
-  });
-  var payload = JSON.stringify({
-    model: aiCfg.model,
-    messages: [
-      { role: "system", content: "你是 cjnote 的写作助手。只输出要求的文字本身，不要任何解释或前后缀。" },
-      { role: "user", content: l2PromptFor(act, l2.selText, getDoc()) }
-    ],
-    stream: true
-  });
-  invoke("http:postStream", {
-    url: normalizeBaseUrl(aiCfg.base),
-    body: payload,
-    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + aiCfg.key }
-  }).then(function (stat) {
-    off();
-    var full = sseToText(l2.acc);
+  $("diff-accept").disabled = true;
+  $("diff-reject").textContent = "丢弃";
+  // 与聊天共用一条 WS：本轮标成 l2，帧进来落 diff 条而不是聊天气泡
+  aiTurn = { kind: "l2", body: null, acc: "", tools: [] };
+  var frame = { type: "chat", message: l2PromptFor(act, l2.selText, getDoc()) };
+  if (cjh.session) { frame.session_id = cjh.session; }
+  cjhWsSend(frame).catch(function (e) {
     l2.streaming = false;
-    if (full === "" || full.indexOf("**[错误]**") === 0) {
-      full = full === "" ? "**[错误]** 没有收到内容（HTTP " + (stat && stat.status || "?") + "），检查端点与白名单。" : full;
-      $("diff-title").textContent = full;
-      $("diff-accept").disabled = true;
-      $("diff-reject").textContent = "关闭";
-      $("ai-state").textContent = "出错";
-      return;
-    }
-    l2.pending = full;
-    $("diff-title").textContent = full.slice(0, 120);
-    $("diff-accept").disabled = false;
-    $("diff-reject").textContent = "丢弃";
-    $("ai-state").textContent = "待确认";
-    report("SELFCHECK PASS l2 diff shown len=" + full.length);
-  }).catch(function (e) {
-    off();
-    l2.streaming = false;
+    aiTurn = null;
     $("diff-title").textContent = "**[错误]** " + (e && e.message ? e.message : String(e));
     $("diff-accept").disabled = true;
-    $("ai-state").textContent = "出错";
+    aiSetState("出错", "bad");
   });
+}
+function l2Stream(acc) {
+  var actName = { rewrite: "改写", continue: "续写", translate: "翻译" }[l2.act] || l2.act;
+  $("diff-title").textContent = "AI " + actName + "：" + String(acc).slice(0, 80);
+}
+// 本轮 l2 的收尾（由 cjhFinishTurn 调用）：成功则进「待确认」，失败 / 空回 / 中断都就地收口
+function l2Finish(acc, errText, stopped) {
+  l2.streaming = false;
+  var full = String(acc || "").trim();
+  if (stopped) {
+    $("diff-title").textContent = "已停止（未产生结果）";
+    $("diff-accept").disabled = true;
+    $("diff-reject").textContent = "关闭";
+    aiSetState("就绪", "ok");
+    return;
+  }
+  if (errText || full === "") {
+    $("diff-title").textContent = errText || "**[错误]** cjh 没有返回内容";
+    $("diff-accept").disabled = true;
+    $("diff-reject").textContent = "关闭";
+    aiSetState("出错", "bad");
+    return;
+  }
+  l2.pending = full;
+  $("diff-title").textContent = full.slice(0, 120);
+  $("diff-accept").disabled = false;
+  $("diff-reject").textContent = "丢弃";
+  aiSetState("待确认", "busy");
+  report("SELFCHECK PASS l2 diff shown len=" + full.length);
 }
 function l2Accept() {
   if (l2.pending) {
@@ -1468,7 +2408,7 @@ function l2Close() {
   l2.pending = null;
   l2.streaming = false;
   $("diff-bar").style.display = "none";
-  $("ai-state").textContent = aiCfg.base ? "就绪" : "未配置";
+  aiSetState(cjh.up ? "就绪" : "未连接", cjh.up ? "ok" : "bad");
 }
 function initL2() {
   var bar = $("sel-bar");
@@ -1505,6 +2445,25 @@ waitForBridge(function () {
     document.getElementById("btn-refresh").onclick = function () { refreshList(); };
     document.getElementById("tab-notes").onclick = function () { showSide("notes"); };
     document.getElementById("tab-outline").onclick = function () { showSide("outline"); };
+    // 排序下拉：改完即重排 + 偏好落盘
+    $("sortby").onchange = function () {
+      sortBy = this.value;
+      renderList();
+      invoke("store:set", { key: "ui.sortby", value: sortBy }).catch(function () {});
+      report("UI sortBy=" + sortBy);
+    };
+    // 弹窗接线：确定 / 取消 / Enter 提交 / Esc 与点外侧关闭
+    $("modal-ok").onclick = modalSubmit;
+    $("modal-cancel").onclick = closeModal;
+    $("modal-input").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); modalSubmit(); }
+    });
+    $("modal").addEventListener("mousedown", function (e) {
+      if (e.target === this) { closeModal(); }
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && $("modal").classList.contains("on")) { e.preventDefault(); closeModal(); }
+    });
     // 原生菜单点击 → 框架自动投 `menu:click`（信封即载荷，见 src/shell_event.cj）：
     // 菜单、顶栏按钮、快捷键收敛到同一批动作函数
     if (bridge.listen) { bridge.listen("menu:click", onMenuClick); }
@@ -1545,6 +2504,9 @@ waitForBridge(function () {
       if (wrap && !wrap.contains(e.target)) { themePopOpen(false); }
     });
     loadUiPrefs();
+    loadExtFiles();
+    initSidebarDrag();
+    loadSidebarW();
     document.addEventListener("keydown", function (e) {
       // 主题弹层开着时 Esc 先收它（最轻的一层，优先于两个模态浮层）
       if (e.key === "Escape" && !$("theme-menu").hasAttribute("hidden")) {
@@ -1572,24 +2534,40 @@ waitForBridge(function () {
         applyViewMode({ "1": "edit", "2": "preview", "3": "split" }[e.key]);
       }
     });
-    // AI 侧栏接线：发送按钮 + Enter 发送（Shift+Enter 换行）
+    // AI 侧栏接线：发送按钮 + Enter 发送（Shift+Enter 换行）+ 输入框随内容自动增高
     document.getElementById("ai-send").onclick = aiSend;
+    // ⚙ 打开设置页（不是静默重连，也不是往消息区塞一张卡）
+    document.getElementById("ai-cfg-btn").onclick = openAiSettings;
+    document.getElementById("ai-set-back").onclick = function () { aiView("chat"); };
+    document.getElementById("set-save").onclick = saveCjhConfigForm;
+    document.getElementById("set-refresh").onclick = function () {
+      loadCjhConfigForm();
+      refreshCjhStatusLine();
+    };
     document.getElementById("ai-input").addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); aiSend(); }
+    });
+    document.getElementById("ai-input").addEventListener("input", function () {
+      this.style.height = "auto";
+      this.style.height = Math.min(this.scrollHeight, 120) + "px";
     });
     // L2 选区动作接线（编辑器初始化之后）
     initL2();
     refreshList().then(function (list) {
-      if (list.length > 0) { openNote(list[0]); }
+      if (list.length === 0) { return; }
+      // 恢复「上次打开」：重启还在（对齐 markdown-notes）；键缺失或笔记已删回退第一篇
+      return invoke("store:get", { key: LAST_KEY }).then(function (last) {
+        var pick = list[0];
+        if (typeof last === "string") {
+          for (var i = 0; i < list.length; i++) { if (list[i] === last) { pick = last; break; } }
+        }
+        if (pick !== list[0]) { report("UI 已恢复上次打开: " + pick); }
+        return openNote(pick);
+      });
     });
-    // 配置链路（#3）：启动即读 store，配置齐则侧栏就绪，缺则弹设置面板
-    aiLoadCfg().then(function (cfg) {
-      if (cfg.base && cfg.model) {
-        $("ai-state").textContent = "就绪";
-        aiMsgEl("assistant", "我在。写笔记时有需要随时问我。");
-      } else {
-        aiShowSetup("");
-      }
+    // AI 后端接线：连 cjh（宿主已在后台拉起 vendor 里那份），连不上就出引导卡
+    initCjh().then(function () {
+      if (cjh.up) { aiGreet("写笔记时随时问我；勾「引用当前笔记」我会结合正文回答。"); }
     });
     selfCheck(env);
   }).catch(function (e) {
@@ -1597,5 +2575,16 @@ waitForBridge(function () {
   });
 }, 50);
 </script>
+  <div id="modal">
+    <div class="modal-card">
+      <div class="modal-title" id="modal-title"></div>
+      <input id="modal-input" />
+      <div class="modal-text" id="modal-text"></div>
+      <div class="modal-btns">
+        <button id="modal-cancel">取消</button>
+        <button id="modal-ok">确定</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

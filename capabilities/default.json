@@ -8,6 +8,7 @@
     "note:save",
     "note:create",
     "note:delete",
+    "note:rename",
     "note:readExternal",
     "dialog:open",
     "store:get",
@@ -17,15 +18,23 @@
     "http:get",
     "http:post",
     "http:postStream",
+    "ws:connect",
+    "ws:send",
+    "ws:close",
     "log:write",
     "clipboard:write",
     "report",
     "notes:env",
     "theme:apply",
     "titlebar:sync",
+    "cjh:status",
+    "cjh:start",
+    "cjh:config",
+    "cjh:saveConfig",
+    "cjh:restart",
     "system:version"
   ],
-  "permissions": ["store:default", "http:default", "log:default", "clipboard:default"],
+  "permissions": ["store:default", "http:default", "log:default", "clipboard:default", "ws:default"],
   "scopes": {
     "http": {
       "allow": [
@@ -38,7 +47,10 @@
         "127.0.0.1",
         "localhost"
       ]
+    },
+    "ws": {
+      "allow": ["127.0.0.1", "localhost"]
     }
   },
-  "events": ["http:chunk", "menu:click"]
+  "events": ["http:chunk", "ws:frame", "ws:state", "menu:click"]
 }

@@ -4,3 +4,7 @@ notes/
 *.log
 # store 插件的落盘（界面偏好 / ai.config），属于本机运行期数据
 store.json
+.extract/
+# 本机工具数据与截图草稿，不属于仓库
+.atomcode/
+shots/

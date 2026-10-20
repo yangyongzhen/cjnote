@@ -13,10 +13,13 @@ import cjTauri.plugins.http.*
 import cjTauri.plugins.log.*
 import cjTauri.plugins.clipboard.*
 import cjTauri.plugins.dialog.*
+import cjTauri.plugins.ws.*
 import std.env.*
 import std.fs.*
 import std.collection.*
 import stdx.encoding.json.*
+import stdx.crypto.common.*
+import stdx.crypto.kit.*
 
 /** 前端自检/日志回投：页面每条断言打一行 stderr，取证 grep 这一个前缀 */
 public class ReportCommand <: CommandHandler {
@@ -180,13 +183,6 @@ func baseNameOf(path: String): String {
     return s
 }
 
-func envOr(name: String, fallback: String): String {
-    match (getVariable(name)) {
-        case Some(v) => return v
-        case None => return fallback
-    }
-}
-
 /** 读一份文本文件，读不到返回空串（调用方打 stderr，不致命） */
 func readTextOr(path: String, hint: String): String {
     try {
@@ -220,6 +216,9 @@ func buildAppMenu(): MenuModel {
     file.add(MenuItem.separator())
     file.add(MenuItem.normalWithAccel("file.new", "新建笔记", "Ctrl+N"))
     file.add(MenuItem.normalWithAccel("file.save", "保存", "Ctrl+S"))
+    // 重命名/删除作用于当前笔记（与 markdown-notes 同约定）；外部文件在页面侧被拒
+    file.add(MenuItem.normal("file.rename", "重命名…"))
+    file.add(MenuItem.normal("file.delete", "删除…"))
     file.add(MenuItem.normal("file.refresh", "刷新列表"))
     file.add(MenuItem.separator())
     // 退出在应用层收口（不经过页面：页面卡住时也要能退）
@@ -295,6 +294,11 @@ class MenuRouter {
 }
 
 main(): Int64 {
+    // ws 插件底层是 stdx.net.http 的 WebSocket 客户端，升级握手要 TLS 配置，
+    // 而 tls 取的是**全局** crypto kit——不注册就报 "Global crypto kit is not set"，
+    // 连明文 ws:// 也一样（TlsClientConfig 在 connect 阶段就会被构造）。启动即注册。
+    setGlobalCryptoKit(DefaultCryptoKit())
+
     var selfCheck = false
     if (let Some(v) <- getVariable("CJNOTE_SELFCHECK")) {
         if (v == "1") {
@@ -320,6 +324,8 @@ main(): Int64 {
         .plugin(LogPlugin())
         .plugin(ClipboardPlugin())
         .plugin(DialogPlugin())
+        // cjh 后端通道：ws:frame 事件回投聊天流（cjh web 的 /ws）
+        .plugin(WsPlugin())
         .register("report", ReportCommand())
         .register("notes:env", NotesEnvCommand(selfCheck))
         .register("note:list", noteCmds)
@@ -328,12 +334,20 @@ main(): Int64 {
         .register("note:save", noteCmds)
         .register("note:create", noteCmds)
         .register("note:delete", noteCmds)
+        .register("note:rename", noteCmds)
         .register("note:readExternal", ReadExternalCommand())
 
     // 页面自绘主题菜单 → 原生菜单勾选（两条入口必须一致，见 ThemeSyncCommand 注释）
     let _ = app.register("theme:apply", ThemeSyncCommand(app))
     // 页面 → 原生标题行（宿主支持时页面顶栏整行让出来，见 TitlebarSyncCommand 注释）
     let _ = app.register("titlebar:sync", TitlebarSyncCommand(app))
+    // cjh 生命周期交给页面问（三态 + 端点），进程句柄在 cjh_host.cj 的全局里
+    let cjhCmds = CjhCommands()
+    let _ = app.register("cjh:status", cjhCmds)
+    let _ = app.register("cjh:start", cjhCmds)
+    let _ = app.register("cjh:config", cjhCmds)
+    let _ = app.register("cjh:saveConfig", cjhCmds)
+    let _ = app.register("cjh:restart", cjhCmds)
 
     // 工作区在装配期建好 + 播种欢迎笔记（幂等：目录/文件已存在不重建）。
     // 建目录是应用装配的事，不进 fs 插件命令面（markdown-notes 同款）。
@@ -355,20 +369,10 @@ main(): Int64 {
         }
     }
 
-    // 探针模式（CJNOTE_PROBE_AI=1）：注入 mock 端点配置，前端自检追加一条 AI 流式探针
-    // （ai-chat 的 CJ_AICHAT_PROBE 同款：无人值守验证管道，真机配置仍走设置面板/store）
-    if (let Some(v) <- getVariable("CJNOTE_PROBE_AI")) {
-        if (v == "1") {
-            let base = envOr("CJNOTE_MOCK_URL", "http://127.0.0.1:18923/chat/completions")
-            let js = "window.__CJNOTE_AI_CFG__ = {base: '" + base + "', key: 'probe', model: 'mock'};\n"
-            match (app.hostOf("main")) {
-                case Some(host) =>
-                    host.addInitScript(js)
-                    eprintln("[cjnote] AI 探针配置已注入（${base}）")
-                case None => eprintln("[cjnote] AI 探针：主窗未登记，配置没注入")
-            }
-        }
-    }
+    // cjh（唯一 AI 后端）在后台线程拉起：cjh web 首次启动要装 Agent 栈，秒级；
+    // 放在装配期同步等会把首屏一起拖住。页面起来后轮询 `cjh:status` 拿端点，
+    // 正好覆盖「启动瞬间还没就绪 → 稍后就绪」这一段。
+    let _ = spawn { => ensureCjhWeb() }
 
     // 原生菜单 + 事件回投：必须在 run() 之前装配（预置类宿主能力，AGENTS §2）；
     // 点击由框架自动投前端 `menu:click`（能力清单 events 已声明），退出这类动作在应用层直接收口
@@ -383,6 +387,8 @@ main(): Int64 {
     }
 
     app.run(html)
+    // 只收自己拉起的 cjh（用户自己的实例不动，见 shutdownCjh）
+    shutdownCjh()
     eprintln("[cjnote] after run")
     return 0
 }
